@@ -23,17 +23,12 @@
         0 1px 2px rgba(0,0,0,.06),
         0 8px 24px rgba(15,23,42,.06);
     }
-    .card-dark {
-      background: #0f172a; /* slate-900 */
-      color: #e5e7eb;      /* text-gray-200 */
-    }
     .btn {
       padding: .5rem 1rem;
       border-radius: .75rem;
       font-weight: 500;
       transition: transform .05s ease, background-color .15s ease, opacity .15s ease;
-      cursor: pointer;
-      user-select: none;
+      cursor: pointer; user-select: none;
     }
     .btn:active { transform: translateY(1px); }
     .btn-primary { background: #4f46e5; color: #fff; }
@@ -46,27 +41,23 @@
     .btn-danger:hover { background:#be123c; }
     .btn-danger:active { background:#9f1239; }
 
-    .chip {
-      font-size: .75rem; padding: .125rem .5rem;
-      border-radius: 9999px;
-      background: #f1f5f9; color:#334155;
-    }
+    .chip { font-size: .75rem; padding: .125rem .5rem; border-radius: 9999px; background: #f1f5f9; color:#334155; }
     .mono { font-variant-numeric: tabular-nums; }
 
     textarea:focus, input[type="text"]:focus {
-      outline: none; box-shadow: var(--ring);
-      border-color: #6366f1;
+      outline: none; box-shadow: var(--ring); border-color: #6366f1;
     }
 
-    /* Контейнер под график — чуть выше, как просили */
+    /* Ширина/высота графика */
     .chart-wrap { height: 520px; }
+
     /* Белая таблица */
     .table-white { background: #ffffff !important; color: #0f172a; }
     .table-white > div, .table-white table { background: #ffffff !important; }
     .table-white table { width: 100%; border-collapse: separate; border-spacing: 0; }
     .table-white thead th {
       background: #f8fafc !important;
-      color: #334155 !important; /* slate-700 */
+      color: #334155 !important;
       font-weight: 600;
       border-bottom: 1px solid #e2e8f0;
     }
@@ -76,9 +67,6 @@
       border-bottom: 1px solid #f1f5f9;
     }
     .table-white tbody tr:hover td { background: #f8fafc !important; }
-
-    /* Подсветка просрочек на графике */
-    .overdue-note { color:#ef4444; font-weight:600; }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-900 min-h-screen">
@@ -144,19 +132,28 @@
       </div>
     </section>
 
-    <!-- Диаграмма (тёмная карточка под стиль референса) -->
+    <!-- Диаграмма -->
     <section class="card p-4 md:p-6">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-xl font-semibold">Диаграмма динамики задолженности</h2>
-        <div class="flex gap-3 items-center text-sm text-slate-300">
+        <div class="flex items-center gap-3">
+          <h2 class="text-xl font-semibold">Диаграмма динамики задолженности</h2>
+          <div class="ml-4 inline-flex rounded-xl overflow-hidden border border-slate-200">
+            <button id="tabLineBtn" class="px-3 py-1.5 text-sm bg-indigo-600 text-white">Линейная</button>
+            <button id="tabBarBtn"  class="px-3 py-1.5 text-sm bg-white text-slate-700 hover:bg-slate-50">Блоковая</button>
+          </div>
+        </div>
+        <div class="flex gap-3 items-center text-sm">
           <label class="flex items-center gap-2"><input type="checkbox" id="showMinPay" class="rounded" checked>Мин. платеж</label>
           <label class="flex items-center gap-2"><input type="checkbox" id="showInterest" class="rounded">Проценты</label>
           <label class="flex items-center gap-2"><input type="checkbox" id="showIncome" class="rounded">Поступления</label>
           <label class="flex items-center gap-2"><input type="checkbox" id="showSpend" class="rounded">Расходы</label>
         </div>
       </div>
-      <div class="relative chart-wrap">
+      <div id="chartLineWrap" class="relative chart-wrap">
         <canvas id="debtChart" height="420"></canvas>
+      </div>
+      <div id="chartBarWrap" class="relative chart-wrap hidden">
+        <canvas id="barChart" height="420"></canvas>
       </div>
     </section>
 
@@ -192,50 +189,40 @@
   </div>
 
   <script>
-    // ====== Цвета серий (фиксируем палитру) ======
+    // ====== Цвета серий ======
     const COLORS = {
-      debt:    '#3b82f6', // синий (blue-500)
-      income:  '#22c55e', // зелёный (green-500)
-      spend:   '#ef4444', // красный (red-500)
-      interest:'#ea580c', // тёмно-оранжевый (orange-600)
-      minPay:  '#a855f7', // фиолетовый (purple-500)
-      grid:    'rgba(0,0,0,0.06)', // светлая сетка
-      ticks:   '#475569', // подписи осей (slate-600)
-      legend:  '#334155'  // легенда (slate-700)
+      debt:    '#3b82f6', // синий
+      income:  '#22c55e', // зелёный
+      spend:   '#ef4444', // красный
+      interest:'#ea580c', // тёмно-оранжевый
+      minPay:  '#a855f7', // фиолетовый
+      grid:    'rgba(0,0,0,0.06)',
+      ticks:   '#475569',
+      legend:  '#334155'
     };
 
-    // ====== Утилиты форматирования и парсинга ======
-    const nbsp = /\u00A0/g;
-    const spaces = /\s+/g;
+    // ====== Утилиты парсинга/форматирования ======
+    const nbsp = /\u00A0/g, spaces = /\s+/g;
 
     function parseRub(raw) {
       if (!raw) return null;
       const s = String(raw)
         .replace(nbsp, ' ')
-        .replace(/[\u2212\u2012\u2013\u2014]/g, '-') // Unicode минусы → обычный
-        .replace(/[^\d,\-\s,]/g, '')                // цифры, запятая, минус, пробел
-        .replace(spaces, '')                        // убираем отсечки тысяч
-        .replace(',', '.');                         // RU дробь → точка
+        .replace(/[\u2212\u2012\u2013\u2014]/g, '-') // unicode минусы → обычный
+        .replace(/[^\d,\-\s]/g, '')
+        .replace(spaces, '')
+        .replace(',', '.');
       const val = parseFloat(s);
       return isNaN(val) ? null : val;
     }
 
-    const rubFmt = new Intl.NumberFormat('ru-RU', {
-      style: 'currency', currency: 'RUB', maximumFractionDigits: 2
-    });
-
-    function safe(str) { return (str || '').trim(); }
-
-    function extract(lineRE, text) {
-      const m = text.match(lineRE);
-      return m ? safe(m[1]) : '';
-    }
+    const rubFmt = new Intl.NumberFormat('ru-RU', { style:'currency', currency:'RUB', maximumFractionDigits:2 });
+    const safe = (s) => (s || '').trim();
+    const extract = (re, text) => { const m = text.match(re); return m ? safe(m[1]) : ''; };
 
     function parsePeriodLabel(text) {
-      // Пример: "Выписка за период с 17 июня по 16 июля"
       const m = text.match(/Выписка\s+за\s+период\s+с\s+(.+?)\s+по\s+(.+?)(?:\n|$)/i);
-      if (!m) return '';
-      return `${m[1]} — ${m[2]}`;
+      return m ? `${m[1]} — ${m[2]}` : '';
     }
 
     function parseStatement(text) {
@@ -265,13 +252,13 @@
       };
     }
 
-    // ====== Состояние и LocalStorage ======
+    // ====== LocalStorage ======
     const STORAGE_KEY = 'credit-tracker-periods-v1';
-    function loadData() { try { const s = localStorage.getItem(STORAGE_KEY); return s ? JSON.parse(s) : []; } catch { return []; } }
-    function saveData(list) { localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); }
+    const loadData = () => { try { const s = localStorage.getItem(STORAGE_KEY); return s ? JSON.parse(s) : []; } catch { return []; } };
+    const saveData = (list) => localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
     let periods = loadData();
 
-    // ====== UI элементы ======
+    // ====== Элементы UI ======
     const statementInput = document.getElementById('statementInput');
     const parseBtn       = document.getElementById('parseBtn');
     const clearInputBtn  = document.getElementById('clearInputBtn');
@@ -282,18 +269,18 @@
 
     let lastParsed = null;
 
-    function renderPreview(data) {
+    function renderPreview(d) {
       parsePreview.innerHTML = '';
       const fields = [
-        ['Период', data.period],
-        ['Долг по выписке', data.debt!=null ? rubFmt.format(data.debt) : '—'],
-        ['Баланс начало периода', data.balStart!=null ? rubFmt.format(data.balStart) : '—'],
-        ['Баланс конец периода', data.balEnd!=null ? rubFmt.format(data.balEnd) : '—'],
-        ['Мин. платёж', data.minPay!=null ? rubFmt.format(data.minPay) : '—'],
-        ['Дата мин. платежа', data.minPayDate || '—'],
-        ['Начисленные проценты', data.interest!=null ? rubFmt.format(data.interest) : '—'],
-        ['Поступления', data.income!=null ? rubFmt.format(data.income) : '—'],
-        ['Расходы', data.spend!=null ? rubFmt.format(data.spend) : '—'],
+        ['Период', d.period],
+        ['Долг по выписке', d.debt!=null ? rubFmt.format(d.debt) : '—'],
+        ['Баланс начало периода', d.balStart!=null ? rubFmt.format(d.balStart) : '—'],
+        ['Баланс конец периода', d.balEnd!=null ? rubFmt.format(d.balEnd) : '—'],
+        ['Мин. платёж', d.minPay!=null ? rubFmt.format(d.minPay) : '—'],
+        ['Дата мин. платежа', d.minPayDate || '—'],
+        ['Начисленные проценты', d.interest!=null ? rubFmt.format(d.interest) : '—'],
+        ['Поступления', d.income!=null ? rubFmt.format(d.income) : '—'],
+        ['Расходы', d.spend!=null ? rubFmt.format(d.spend) : '—'],
       ];
       for (const [label, val] of fields) {
         const row = document.createElement('div');
@@ -313,24 +300,18 @@
       const ok = parsed.period && (parsed.balEnd!=null || parsed.debt!=null);
       addRecordBtn.disabled = !ok;
     });
-
     clearInputBtn.addEventListener('click', () => {
       statementInput.value = '';
       parsePreview.classList.add('hidden');
       addRecordBtn.disabled = true;
     });
-
     addRecordBtn.addEventListener('click', () => {
       if (!lastParsed) return;
-      periods.push(lastParsed);
-      saveData(periods);
-      lastParsed = null;
-      statementInput.value = '';
-      parsePreview.classList.add('hidden');
-      addRecordBtn.disabled = true;
+      periods.push(lastParsed); saveData(periods);
+      lastParsed = null; statementInput.value = '';
+      parsePreview.classList.add('hidden'); addRecordBtn.disabled = true;
       renderTable(); rebuildChart();
     });
-
     // Быстрое добавление
     quickAddBtn.addEventListener('click', () => {
       const text = statementInput.value.trim();
@@ -338,11 +319,8 @@
       const parsed = parseStatement(text);
       const ok = parsed.period && (parsed.balEnd!=null || parsed.debt!=null);
       if (!ok) { alert('Не удалось распознать ключевые поля (Период и Баланс/Долг). Проверьте структуру текста.'); return; }
-      periods.push(parsed);
-      saveData(periods);
-      statementInput.value = '';
-      parsePreview.classList.add('hidden');
-      addRecordBtn.disabled = true;
+      periods.push(parsed); saveData(periods);
+      statementInput.value = ''; parsePreview.classList.add('hidden'); addRecordBtn.disabled = true;
       renderTable(); rebuildChart();
     });
 
@@ -381,16 +359,14 @@
       const action = btn.dataset.action;
       if (action === 'del') {
         if (confirm('Удалить этот период?')) {
-          periods.splice(idx, 1);
-          saveData(periods);
+          periods.splice(idx, 1); saveData(periods);
           renderTable(); rebuildChart();
         }
       } else if (action === 'edit') {
         const p = periods[idx];
         const text = prompt('Отредактируйте период (только подпись):', p.period || '');
         if (text !== null) {
-          p.period = text.trim();
-          saveData(periods);
+          p.period = text.trim(); saveData(periods);
           renderTable(); rebuildChart();
         }
       }
@@ -406,11 +382,11 @@
     });
 
     // ====== Диаграмма ======
-    const ctx = document.getElementById('debtChart');
-    let chart = null;
+    const canvasEl = document.getElementById('debtChart');
+    let chart = null;      // линейная
+    let barChart = null;   // блоковая (столбиковая)
 
-
-    // Плагин: белый фон под всем канвасом (для PNG без прозрачности)
+    // Белый фон для PNG
     const whiteBgPlugin = {
       id: 'whiteBg',
       beforeDraw(chart) {
@@ -423,7 +399,7 @@
       }
     };
 
-    // Плагин: мягкая тень для линий
+    // Тень для линий
     const shadowLinePlugin = {
       id: 'shadowLine',
       beforeDatasetsDraw(chart) {
@@ -433,12 +409,10 @@
         ctx.shadowBlur = 14;
         ctx.shadowOffsetY = 6;
       },
-      afterDatasetsDraw(chart) {
-        chart.ctx.restore();
-      }
+      afterDatasetsDraw(chart) { chart.ctx.restore(); }
     };
 
-    // Плагин: вертикальные светло-красные столбики для просрочек
+    // Светло-красные вертикальные бэнды для просрочек
     const overdueBandsPlugin = {
       id: 'overdueBands',
       beforeDatasetsDraw(chart) {
@@ -446,32 +420,155 @@
         const xScale = scales.x; const yScale = scales.y;
         if (!xScale || !yScale) return;
         ctx.save();
-        ctx.fillStyle = 'rgba(239,68,68,0.10)'; // red-500 @ 10%
+        ctx.fillStyle = 'rgba(239,68,68,0.10)';
         const meta = chart.getDatasetMeta(0);
         const points = meta?.data || [];
-        // рисуем для каждого индекса, где periods[i].overdue === true
         periods.forEach((p, i) => {
           if (!p.overdue) return;
-          // центр точки по X
           let centerX = points[i]?.x ?? xScale.getPixelForTick(i);
-          // ширина полосы как половина расстояния до соседей (минимум 12px)
-          let leftX, rightX;
           const prevX = points[i-1]?.x ?? xScale.getPixelForTick(Math.max(0, i-1));
           const nextX = points[i+1]?.x ?? xScale.getPixelForTick(Math.min(xScale.ticks.length-1, i+1));
           const halfWidth = Math.max(12, Math.min((nextX - centerX)/2, (centerX - prevX)/2) || 24);
-          leftX = centerX - halfWidth; rightX = centerX + halfWidth;
-          // ограничим область рисования chartArea
-          leftX = Math.max(chartArea.left, leftX);
-          rightX = Math.min(chartArea.right, rightX);
+          let leftX = Math.max(chartArea.left, centerX - halfWidth);
+          let rightX = Math.min(chartArea.right, centerX + halfWidth);
           ctx.fillRect(leftX, chartArea.top, rightX - leftX, chartArea.bottom - chartArea.top);
         });
         ctx.restore();
       }
     };
 
+    // Толстая горизонтальная линия на уровне 0
+    const zeroLinePlugin = {
+      id: 'zeroLine',
+      beforeDatasetsDraw(chart) {
+        const { ctx, chartArea, scales } = chart;
+        const yScale = scales.y; const xScale = scales.x;
+        if (!yScale || !xScale) return;
+        const y0 = yScale.getPixelForValue(0);
+        // Рисуем только если 0 попадает в видимую область
+        if (isNaN(y0) || y0 < chartArea.top || y0 > chartArea.bottom) return;
+        ctx.save();
+        // без теней и эффектов
+        ctx.shadowColor = 'transparent';
+        ctx.beginPath();
+        ctx.moveTo(chartArea.left, y0);
+        ctx.lineTo(chartArea.right, y0);
+        ctx.lineWidth = 3;                 // более жирная
+        ctx.strokeStyle = '#64748b';       // slate-500
+        ctx.setLineDash([]);               // сплошная
+        ctx.stroke();
+        ctx.restore();
+      }
+    };
+
+    // Таблички со значениями — аккуратное стекование по X (вниз), без наложений
+    const valueLabelsPlugin = {
+      id: 'valueLabels',
+      afterDatasetsDraw(chart) {
+        const { ctx, chartArea, data, scales } = chart;
+        const xScale = scales.x; const yScale = scales.y;
+        if (!xScale || !yScale) return;
+
+        ctx.save();
+        ctx.font = '12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial';
+        ctx.textBaseline = 'middle';
+        const padX = 8, radius = 5, boxH = 24, GAP = 6;
+
+        // 1) Сбор кандидатов по всем датасетам
+        const groups = new Map(); // key = Math.round(x), value = array of items
+        data.datasets.forEach((ds, di) => {
+          const meta = chart.getDatasetMeta(di);
+          if (!meta || meta.hidden) return;
+          const pts = meta.data || [];
+          for (let i = 0; i < pts.length; i++) {
+            const el = pts[i];
+            const val = ds.data?.[i];
+            if (!el || val == null || isNaN(val)) continue;
+            const label = rubFmt.format(val);
+            const textW = ctx.measureText(label).width;
+            const w = Math.ceil(textW + padX*2);
+            const cx = el.x, cy = el.y;
+            const baseY = Math.round(cy + 12); // якорь — сразу НИЖЕ точки
+            const key = Math.round(cx);
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push({
+              cx, cy, w, label,
+              stroke: ds.borderColor || '#0f172a',
+              baseY,
+              index: i,
+            });
+          }
+        });
+
+        // 2) Отрисовка: по X слева→вправо; внутри группы — снизу стопкой без пересечений
+        const keys = Array.from(groups.keys()).sort((a,b)=>a-b);
+        for (const key of keys) {
+          const items = groups.get(key);
+          // сортируем по baseY, чтобы ближайшие к точке шли первыми
+          items.sort((a,b)=>a.baseY - b.baseY);
+          let cursorY = null;
+          for (const it of items) {
+            // позиция коробки
+            let x = Math.round(it.cx - it.w/2);
+            let y = Math.round(it.baseY);
+
+            // выставляем стопкой вниз, исключая наложения
+            if (cursorY == null) cursorY = y;
+            else y = Math.max(y, cursorY + boxH + GAP);
+
+            // клаймп в пределах области
+            if (x < chartArea.left + 2) x = chartArea.left + 2;
+            if (x + it.w > chartArea.right - 2) x = chartArea.right - 2 - it.w;
+            if (y < chartArea.top + 2) y = chartArea.top + 2;
+            if (y + boxH > chartArea.bottom - 2) y = chartArea.bottom - 2 - boxH;
+
+            // соединительная линия от бокса к точке
+            ctx.strokeStyle = it.stroke;
+            ctx.fillStyle = '#ffffff';
+            ctx.lineWidth = 1;
+            const legX = Math.max(x+radius, Math.min(it.cx, x+it.w-radius));
+            const legY = y; // бокс ниже точки, тянем линию от верхней кромки
+            ctx.beginPath(); ctx.moveTo(legX, legY); ctx.lineTo(it.cx, it.cy); ctx.stroke();
+
+            // бокс
+            ctx.beginPath();
+            ctx.moveTo(x+radius, y);
+            ctx.lineTo(x+it.w-radius, y);
+            ctx.quadraticCurveTo(x+it.w, y, x+it.w, y+radius);
+            ctx.lineTo(x+it.w, y+boxH-radius);
+            ctx.quadraticCurveTo(x+it.w, y+boxH, x+it.w-radius, y+boxH);
+            ctx.lineTo(x+radius, y+boxH);
+            ctx.quadraticCurveTo(x, y+boxH, x, y+boxH-radius);
+            ctx.lineTo(x, y+radius);
+            ctx.quadraticCurveTo(x, y, x+radius, y);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // текст
+            ctx.fillStyle = '#0f172a';
+            ctx.fillText(it.label, x + padX, y + boxH/2);
+
+            cursorY = y; // обновляем «последний занятый» уровень
+          }
+        }
+
+        ctx.restore();
+      }
+    };
+
+    // Смещение ряда на один период вперёд (для мин. платежей)
+    function shiftForward(arr) {
+      const out = new Array(arr.length).fill(null);
+      for (let i = 0; i < arr.length - 1; i++) {
+        const v = arr[i];
+        out[i + 1] = (v == null || isNaN(v)) ? null : v;
+      }
+      return out;
+    }
+
     function datasetsFrom(periods) {
       const labels = periods.map(p => p.period || '—');
-      // Основной ряд: баланс конец периода, если нет — долг по выписке
       const debtSeries     = periods.map(p => (p.balEnd!=null ? p.balEnd : (p.debt!=null ? p.debt : null)));
       const minPaySeries   = periods.map(p => p.minPay ?? null);
       const interestSeries = periods.map(p => p.interest ?? null);
@@ -482,21 +579,19 @@
 
     function rebuildChart() {
       const { labels, debtSeries, minPaySeries, interestSeries, incomeSeries, spendSeries } = datasetsFrom(periods);
+      const minPayShifted = shiftForward(minPaySeries);
       const showMin = document.getElementById('showMinPay').checked;
       const showInt = document.getElementById('showInterest').checked;
       const showInc = document.getElementById('showIncome').checked;
       const showSpd = document.getElementById('showSpend').checked;
 
       const ds = [
-        // Задолженность — СИНИЙ
         {
           label: 'Задолженность (конец периода)',
           data: debtSeries,
           borderColor: COLORS.debt,
           pointBackgroundColor: COLORS.debt,
           pointBorderColor: COLORS.debt,
-          pointHoverBackgroundColor: COLORS.debt,
-          pointHoverBorderColor: COLORS.debt,
           tension: 0.35,
           borderWidth: 3,
           pointRadius: 4,
@@ -504,17 +599,15 @@
           fill: false,
         }
       ];
-      // Мин. платеж — ФИОЛЕТОВЫЙ (пунктир)
       if (showMin) ds.push({
         label: 'Минимальный платёж',
-        data: minPaySeries,
+        data: minPayShifted,
         borderColor: COLORS.minPay,
         pointBackgroundColor: COLORS.minPay,
         pointBorderColor: COLORS.minPay,
         tension: 0.3, borderWidth: 4, pointRadius: 3, fill: false,
         borderDash: [6,6]
       });
-      // Проценты — ТЁМНО-ОРАНЖЕВЫЕ (штрих)
       if (showInt) ds.push({
         label: 'Начисленные проценты',
         data: interestSeries,
@@ -524,7 +617,6 @@
         tension: 0.3, borderWidth: 4, pointRadius: 3, fill: false,
         borderDash: [2,4]
       });
-      // Поступления — ЗЕЛЁНЫЕ (длинный штрих-пунктир)
       if (showInc) ds.push({
         label: 'Поступления',
         data: incomeSeries,
@@ -534,7 +626,6 @@
         tension: 0.3, borderWidth: 4, pointRadius: 3, fill: false,
         borderDash: [10,6,2,6]
       });
-      // Расходы — КРАСНЫЕ (точечный)
       if (showSpd) ds.push({
         label: 'Расходы',
         data: spendSeries,
@@ -554,46 +645,108 @@
           interaction: { mode: 'nearest', intersect: false },
           cubicInterpolationMode: 'monotone',
           plugins: {
-            legend: {
-              display: true,
-              labels: { usePointStyle: true, color: COLORS.legend, boxWidth: 10, padding: 16 }
-            },
+            legend: { display: true, labels: { usePointStyle: true, color: COLORS.legend, boxWidth: 10, padding: 16 } },
             tooltip: {
-              backgroundColor: '#ffffff',
-              titleColor: '#0f172a',
-              bodyColor: '#0f172a',
-              borderColor: 'rgba(15,23,42,0.15)',
-              borderWidth: 1,
-              callbacks: {
-                label: (ctx) => `${ctx.dataset.label}: ${ctx.raw==null ? '—' : rubFmt.format(ctx.raw)}`
-              }
+              enabled: false // выключаем всплывающие, т.к. есть постоянные таблички
             }
           },
           scales: {
-            x: {
-              grid: { color: COLORS.grid, drawBorder: false },
-              ticks: { color: COLORS.ticks }
-            },
-            y: {
-              grid: { color: COLORS.grid, drawBorder: false },
-              ticks: {
-                color: COLORS.ticks,
-                callback: (v) => rubFmt.format(v)
-              }
-            }
+            x: { grid: { color: COLORS.grid, drawBorder: false }, ticks: { color: COLORS.ticks } },
+            y: { grid: { color: COLORS.grid, drawBorder: false }, ticks: { color: COLORS.ticks, callback: (v) => rubFmt.format(v) } }
           }
         },
-        plugins: [whiteBgPlugin, overdueBandsPlugin, shadowLinePlugin]
+        plugins: [whiteBgPlugin, overdueBandsPlugin, zeroLinePlugin, shadowLinePlugin, valueLabelsPlugin]
       };
 
       if (chart) chart.destroy();
-      chart = new Chart(ctx, config);
+      chart = new Chart(canvasEl, config);
     }
 
-    document.getElementById('showMinPay').addEventListener('change', rebuildChart);
-    document.getElementById('showInterest').addEventListener('change', rebuildChart);
-    document.getElementById('showIncome').addEventListener('change', rebuildChart);
-    document.getElementById('showSpend').addEventListener('change', rebuildChart);
+    // ====== Блоковая (столбиковая) диаграмма ======
+    function rebuildBarChart() {
+      const { labels, debtSeries, minPaySeries, interestSeries, incomeSeries, spendSeries } = datasetsFrom(periods);
+      const minPayShifted = shiftForward(minPaySeries);
+      const showMin = document.getElementById('showMinPay').checked;
+      const showInt = document.getElementById('showInterest').checked;
+      const showInc = document.getElementById('showIncome').checked;
+      const showSpd = document.getElementById('showSpend').checked;
+
+      const ds = [
+        {
+          label: 'Задолженность (конец периода)',
+          data: debtSeries,
+          type: 'bar',
+          backgroundColor: 'rgba(59,130,246,0.25)',
+          borderColor: COLORS.debt,
+          borderWidth: 1,
+          borderRadius: 6,
+        }
+      ];
+      if (showMin) ds.push({
+        label: 'Минимальный платёж',
+        data: minPayShifted,
+        type: 'bar',
+        backgroundColor: 'rgba(168,85,247,0.25)',
+        borderColor: COLORS.minPay,
+        borderWidth: 1,
+        borderRadius: 6,
+      });
+      if (showInt) ds.push({
+        label: 'Начисленные проценты',
+        data: interestSeries,
+        type: 'bar',
+        backgroundColor: 'rgba(234,88,12,0.25)',
+        borderColor: COLORS.interest,
+        borderWidth: 1,
+        borderRadius: 6,
+      });
+      if (showInc) ds.push({
+        label: 'Поступления',
+        data: incomeSeries,
+        type: 'bar',
+        backgroundColor: 'rgba(34,197,94,0.25)',
+        borderColor: COLORS.income,
+        borderWidth: 1,
+        borderRadius: 6,
+      });
+      if (showSpd) ds.push({
+        label: 'Расходы',
+        data: spendSeries,
+        type: 'bar',
+        backgroundColor: 'rgba(239,68,68,0.25)',
+        borderColor: COLORS.spend,
+        borderWidth: 1,
+        borderRadius: 6,
+      });
+
+      const barCtx = document.getElementById('barChart');
+      const config = {
+        type: 'bar',
+        data: { labels, datasets: ds },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'nearest', intersect: false },
+          plugins: {
+            legend: { display: true, labels: { usePointStyle: false, color: COLORS.legend, padding: 16 } },
+            tooltip: { enabled: false }
+          },
+          scales: {
+            x: { grid: { color: COLORS.grid, drawBorder: false }, ticks: { color: COLORS.ticks }, stacked: false },
+            y: { grid: { color: COLORS.grid, drawBorder: false }, ticks: { color: COLORS.ticks, callback: (v)=>rubFmt.format(v) } }
+          }
+        },
+        plugins: [whiteBgPlugin, overdueBandsPlugin, zeroLinePlugin, valueLabelsPlugin]
+      };
+
+      if (barChart) barChart.destroy();
+      barChart = new Chart(barCtx, config);
+    }
+
+    document.getElementById('showMinPay').addEventListener('change', ()=>{ rebuildChart(); rebuildBarChart(); });
+    document.getElementById('showInterest').addEventListener('change', ()=>{ rebuildChart(); rebuildBarChart(); });
+    document.getElementById('showIncome').addEventListener('change', ()=>{ rebuildChart(); rebuildBarChart(); });
+    document.getElementById('showSpend').addEventListener('change', ()=>{ rebuildChart(); rebuildBarChart(); });
 
     // ====== Экспорт/Импорт JSON ======
     const exportBtn = document.getElementById('exportJsonBtn');
@@ -604,56 +757,75 @@
       const blob = new Blob([JSON.stringify(periods, null, 2)], { type: 'application/json;charset=utf-8' });
       saveAs(blob, 'credit-periods.json');
     });
-
     importBtn.addEventListener('click', () => importFile.click());
-
     importFile.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
+      const file = e.target.files[0]; if (!file) return;
       const reader = new FileReader();
       reader.onload = (ev) => {
         try {
           const data = JSON.parse(ev.target.result);
-          if (Array.isArray(data)) {
-            periods = data;
-            saveData(periods);
-            renderTable(); rebuildChart();
-          } else {
-            alert('Неверный формат JSON');
-          }
-        } catch {
-          alert('Не удалось прочитать JSON');
-        }
+          if (Array.isArray(data)) { periods = data; saveData(periods); renderTable(); rebuildChart(); }
+          else alert('Неверный формат JSON');
+        } catch { alert('Не удалось прочитать JSON'); }
       };
       reader.readAsText(file, 'utf-8');
       importFile.value = '';
     });
 
-    // ====== Скачивание графика как PNG (фон — белый) ======
+    // ====== Табы: линейная/блоковая ======
+    const tabLineBtn = document.getElementById('tabLineBtn');
+    const tabBarBtn  = document.getElementById('tabBarBtn');
+    const chartLineWrap = document.getElementById('chartLineWrap');
+    const chartBarWrap  = document.getElementById('chartBarWrap');
+    let currentTab = 'line';
+
+    function activateTab(name){
+      currentTab = name;
+      if (name==='line') {
+        chartLineWrap.classList.remove('hidden');
+        chartBarWrap.classList.add('hidden');
+        tabLineBtn.className = 'px-3 py-1.5 text-sm bg-indigo-600 text-white';
+        tabBarBtn.className  = 'px-3 py-1.5 text-sm bg-white text-slate-700 hover:bg-slate-50';
+        if (chart) chart.resize();
+      } else {
+        chartBarWrap.classList.remove('hidden');
+        chartLineWrap.classList.add('hidden');
+        tabBarBtn.className  = 'px-3 py-1.5 text-sm bg-indigo-600 text-white';
+        tabLineBtn.className = 'px-3 py-1.5 text-sm bg-white text-slate-700 hover:bg-slate-50';
+        // лениво пересобираем столбиковую при первом показе
+        if (!barChart) rebuildBarChart(); else barChart.resize();
+      }
+    }
+
+    tabLineBtn.addEventListener('click', ()=>activateTab('line'));
+    tabBarBtn.addEventListener('click', ()=>activateTab('bar'));
+
+    // ====== Скачивание PNG (белый фон + 3x DPI) ======
     const downloadBtn = document.getElementById('downloadChartBtn');
     downloadBtn.addEventListener('click', () => {
-        if (!chart) return;
-        // временно увеличим devicePixelRatio для сверхчёткой картинки
-        const prev = chart.options.devicePixelRatio ?? Chart.defaults.devicePixelRatio;
-        chart.options.devicePixelRatio = 3; // 3x масштаб для экспорта
-        chart.resize();
-        const url = chart.toBase64Image('image/png', 1.0);
-        // восстановим DPR и размер
-        chart.options.devicePixelRatio = prev;
-        chart.resize();
+      const activeChart = (currentTab==='bar') ? barChart : chart;
+      if (!activeChart) return;
+      const prev = activeChart.options.devicePixelRatio ?? Chart.defaults.devicePixelRatio;
+      activeChart.options.devicePixelRatio = 3;
+      activeChart.update();
+      const url = activeChart.toBase64Image('image/png', 1.0);
+      activeChart.options.devicePixelRatio = prev;
+      activeChart.update();
 
-        const a = document.createElement('a');
-        a.href = url;
-        const now = new Date();
-        a.download = `debt-chart-${now.toISOString().slice(0,10)}.png`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
+      const a = document.createElement('a');
+      a.href = url;
+      const now = new Date();
+      a.download = `debt-${currentTab}-chart-${now.toISOString().slice(0,10)}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
     });
 
     // ====== Инициализация ======
     renderTable();
     rebuildChart();
+    // Столбиковую можно собрать сразу, но держим скрытой
+    // rebuildBarChart();
   </script>
 </body>
 </html>
