@@ -12,9 +12,10 @@
   <!-- FileSaver -->
   <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
 
-  <!-- ВАЖНО: не используем Tailwind @apply (он требует сборку). Чистый CSS ниже. -->
+  <!-- Чистый CSS без @apply -->
   <style>
     :root { --ring: 0 0 0 2px rgba(79,70,229,.25); }
+
     .card {
       border-radius: 1rem;
       background: #fff;
@@ -22,27 +23,25 @@
         0 1px 2px rgba(0,0,0,.06),
         0 8px 24px rgba(15,23,42,.06);
     }
+    .card-dark {
+      background: #0f172a; /* slate-900 */
+      color: #e5e7eb;      /* text-gray-200 */
+    }
     .btn {
       padding: .5rem 1rem;
       border-radius: .75rem;
       font-weight: 500;
-      transition: transform .05s ease, background-color .15s ease;
+      transition: transform .05s ease, background-color .15s ease, opacity .15s ease;
       cursor: pointer;
       user-select: none;
     }
     .btn:active { transform: translateY(1px); }
-    .btn-primary {
-      background: #4f46e5; color: #fff;
-    }
+    .btn-primary { background: #4f46e5; color: #fff; }
     .btn-primary:hover { background: #4338ca; }
     .btn-primary:active { background: #3730a3; }
-
-    .btn-secondary {
-      background: #f1f5f9; color: #334155;
-    }
+    .btn-secondary { background: #f1f5f9; color: #334155; }
     .btn-secondary:hover { background: #e2e8f0; }
     .btn-secondary:active { background: #cbd5e1; }
-
     .btn-danger { background:#e11d48; color:#fff; }
     .btn-danger:hover { background:#be123c; }
     .btn-danger:active { background:#9f1239; }
@@ -58,10 +57,32 @@
       outline: none; box-shadow: var(--ring);
       border-color: #6366f1;
     }
+
+    /* Контейнер под график — чуть выше, как просили */
+    .chart-wrap { height: 520px; }
+    /* Белая таблица */
+    .table-white { background: #ffffff !important; color: #0f172a; }
+    .table-white > div, .table-white table { background: #ffffff !important; }
+    .table-white table { width: 100%; border-collapse: separate; border-spacing: 0; }
+    .table-white thead th {
+      background: #f8fafc !important;
+      color: #334155 !important; /* slate-700 */
+      font-weight: 600;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .table-white tbody td {
+      background: #ffffff !important;
+      color: #0f172a !important;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .table-white tbody tr:hover td { background: #f8fafc !important; }
+
+    /* Подсветка просрочек на графике */
+    .overdue-note { color:#ef4444; font-weight:600; }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-900 min-h-screen">
-  <div class="max-w-6xl mx-auto p-4 md:p-8 space-y-6">
+  <div class="max-w-[1400px] mx-auto p-4 md:p-8 space-y-6">
     <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
       <div>
         <h1 class="text-2xl md:text-3xl font-bold">График задолженности по кредитному продукту</h1>
@@ -123,33 +144,24 @@
       </div>
     </section>
 
-    <!-- Диаграмма -->
+    <!-- Диаграмма (тёмная карточка под стиль референса) -->
     <section class="card p-4 md:p-6">
       <div class="flex items-center justify-between mb-3">
         <h2 class="text-xl font-semibold">Диаграмма динамики задолженности</h2>
-        <div class="flex gap-2 items-center">
-          <label class="flex items-center gap-2 text-sm">
-            <input type="checkbox" id="showMinPay" class="rounded" checked>Показывать мин. платеж
-          </label>
-          <label class="flex items-center gap-2 text-sm">
-            <input type="checkbox" id="showInterest" class="rounded">Показывать проценты
-          </label>
-          <label class="flex items-center gap-2 text-sm">
-            <input type="checkbox" id="showIncome" class="rounded">Показывать поступления
-          </label>
-          <label class="flex items-center gap-2 text-sm">
-            <input type="checkbox" id="showSpend" class="rounded">Показывать расходы
-          </label>
+        <div class="flex gap-3 items-center text-sm text-slate-300">
+          <label class="flex items-center gap-2"><input type="checkbox" id="showMinPay" class="rounded" checked>Мин. платеж</label>
+          <label class="flex items-center gap-2"><input type="checkbox" id="showInterest" class="rounded">Проценты</label>
+          <label class="flex items-center gap-2"><input type="checkbox" id="showIncome" class="rounded">Поступления</label>
+          <label class="flex items-center gap-2"><input type="checkbox" id="showSpend" class="rounded">Расходы</label>
         </div>
       </div>
-      <div class="relative" style="height: 380px;">
-        <!-- canvas высотой 280 + внешний контейнер для респонсива -->
-        <canvas id="debtChart" height="280"></canvas>
+      <div class="relative chart-wrap">
+        <canvas id="debtChart" height="420"></canvas>
       </div>
     </section>
 
     <!-- Таблица периодов -->
-    <section class="card p-4 md:p-6">
+    <section class="card p-4 md:p-6 table-white">
       <div class="flex items-center justify-between mb-3">
         <h2 class="text-xl font-semibold">Периоды</h2>
         <div class="text-sm text-slate-500">Хранится локально (LocalStorage)</div>
@@ -157,7 +169,7 @@
       <div class="overflow-x-auto">
         <table class="min-w-full text-sm">
           <thead>
-            <tr class="text-left text-slate-500">
+            <tr class="text-left">
               <th class="py-2 pr-4">Период</th>
               <th class="py-2 pr-4">Долг по выписке</th>
               <th class="py-2 pr-4">Баланс конец периода</th>
@@ -165,6 +177,7 @@
               <th class="py-2 pr-4">Проценты</th>
               <th class="py-2 pr-4">Поступления</th>
               <th class="py-2 pr-4">Расходы</th>
+              <th class="py-2 pr-4">Просрочка</th>
               <th class="py-2 pr-4">Действия</th>
             </tr>
           </thead>
@@ -179,6 +192,18 @@
   </div>
 
   <script>
+    // ====== Цвета серий (фиксируем палитру) ======
+    const COLORS = {
+      debt:    '#3b82f6', // синий (blue-500)
+      income:  '#22c55e', // зелёный (green-500)
+      spend:   '#ef4444', // красный (red-500)
+      interest:'#ea580c', // тёмно-оранжевый (orange-600)
+      minPay:  '#a855f7', // фиолетовый (purple-500)
+      grid:    'rgba(0,0,0,0.06)', // светлая сетка
+      ticks:   '#475569', // подписи осей (slate-600)
+      legend:  '#334155'  // легенда (slate-700)
+    };
+
     // ====== Утилиты форматирования и парсинга ======
     const nbsp = /\u00A0/g;
     const spaces = /\s+/g;
@@ -188,9 +213,9 @@
       const s = String(raw)
         .replace(nbsp, ' ')
         .replace(/[\u2212\u2012\u2013\u2014]/g, '-') // Unicode минусы → обычный
-        .replace(/[^\d,\-\s]/g, '')                  // цифры, запятая, минус, пробел
-        .replace(spaces, '')                         // убираем пробелы/разделители тыс.
-        .replace(',', '.');                          // RU дробь → точка
+        .replace(/[^\d,\-\s,]/g, '')                // цифры, запятая, минус, пробел
+        .replace(spaces, '')                        // убираем отсечки тысяч
+        .replace(',', '.');                         // RU дробь → точка
       const val = parseFloat(s);
       return isNaN(val) ? null : val;
     }
@@ -242,11 +267,7 @@
 
     // ====== Состояние и LocalStorage ======
     const STORAGE_KEY = 'credit-tracker-periods-v1';
-
-    function loadData() {
-      try { const s = localStorage.getItem(STORAGE_KEY); return s ? JSON.parse(s) : []; }
-      catch { return []; }
-    }
+    function loadData() { try { const s = localStorage.getItem(STORAGE_KEY); return s ? JSON.parse(s) : []; } catch { return []; } }
     function saveData(list) { localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); }
     let periods = loadData();
 
@@ -310,7 +331,7 @@
       renderTable(); rebuildChart();
     });
 
-    // Быстрое добавление: парсим и сразу кидаем в диаграмму/таблицу
+    // Быстрое добавление
     quickAddBtn.addEventListener('click', () => {
       const text = statementInput.value.trim();
       if (!text) { alert('Вставьте текст выписки.'); return; }
@@ -339,6 +360,9 @@
           <td class="py-2 pr-4 mono">${p.interest!=null ? rubFmt.format(p.interest) : '—'}</td>
           <td class="py-2 pr-4 mono">${p.income!=null ? rubFmt.format(p.income) : '—'}</td>
           <td class="py-2 pr-4 mono">${p.spend!=null ? rubFmt.format(p.spend) : '—'}</td>
+          <td class="py-2 pr-4">
+            <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" data-action="overdue-toggle" data-idx="${idx}" ${p.overdue ? 'checked' : ''}/> <span>Да</span></label>
+          </td>
           <td class="py-2 pr-4">
             <div class="flex gap-2">
               <button class="btn btn-secondary" data-action="edit" data-idx="${idx}">Править</button>
@@ -372,11 +396,21 @@
       }
     });
 
+    tbody.addEventListener('change', (e) => {
+      const cb = e.target.closest('input[type="checkbox"][data-action="overdue-toggle"]');
+      if (!cb) return;
+      const idx = +cb.dataset.idx;
+      periods[idx].overdue = cb.checked;
+      saveData(periods);
+      rebuildChart();
+    });
+
     // ====== Диаграмма ======
     const ctx = document.getElementById('debtChart');
     let chart = null;
 
-    // Плагин: белый фон под графиком (экспорт PNG и на экране)
+
+    // Плагин: белый фон под всем канвасом (для PNG без прозрачности)
     const whiteBgPlugin = {
       id: 'whiteBg',
       beforeDraw(chart) {
@@ -389,14 +423,14 @@
       }
     };
 
-    // Плагин: мягкая тень для линий (без приватных API)
+    // Плагин: мягкая тень для линий
     const shadowLinePlugin = {
       id: 'shadowLine',
       beforeDatasetsDraw(chart) {
         const { ctx } = chart;
         ctx.save();
-        ctx.shadowColor = 'rgba(0,0,0,0.15)';
-        ctx.shadowBlur = 12;
+        ctx.shadowColor = 'rgba(0,0,0,0.25)';
+        ctx.shadowBlur = 14;
         ctx.shadowOffsetY = 6;
       },
       afterDatasetsDraw(chart) {
@@ -404,9 +438,40 @@
       }
     };
 
+    // Плагин: вертикальные светло-красные столбики для просрочек
+    const overdueBandsPlugin = {
+      id: 'overdueBands',
+      beforeDatasetsDraw(chart) {
+        const { ctx, chartArea, scales } = chart;
+        const xScale = scales.x; const yScale = scales.y;
+        if (!xScale || !yScale) return;
+        ctx.save();
+        ctx.fillStyle = 'rgba(239,68,68,0.10)'; // red-500 @ 10%
+        const meta = chart.getDatasetMeta(0);
+        const points = meta?.data || [];
+        // рисуем для каждого индекса, где periods[i].overdue === true
+        periods.forEach((p, i) => {
+          if (!p.overdue) return;
+          // центр точки по X
+          let centerX = points[i]?.x ?? xScale.getPixelForTick(i);
+          // ширина полосы как половина расстояния до соседей (минимум 12px)
+          let leftX, rightX;
+          const prevX = points[i-1]?.x ?? xScale.getPixelForTick(Math.max(0, i-1));
+          const nextX = points[i+1]?.x ?? xScale.getPixelForTick(Math.min(xScale.ticks.length-1, i+1));
+          const halfWidth = Math.max(12, Math.min((nextX - centerX)/2, (centerX - prevX)/2) || 24);
+          leftX = centerX - halfWidth; rightX = centerX + halfWidth;
+          // ограничим область рисования chartArea
+          leftX = Math.max(chartArea.left, leftX);
+          rightX = Math.min(chartArea.right, rightX);
+          ctx.fillRect(leftX, chartArea.top, rightX - leftX, chartArea.bottom - chartArea.top);
+        });
+        ctx.restore();
+      }
+    };
+
     function datasetsFrom(periods) {
       const labels = periods.map(p => p.period || '—');
-      // основной ряд: баланс конец периода, если нет — долг по выписке
+      // Основной ряд: баланс конец периода, если нет — долг по выписке
       const debtSeries     = periods.map(p => (p.balEnd!=null ? p.balEnd : (p.debt!=null ? p.debt : null)));
       const minPaySeries   = periods.map(p => p.minPay ?? null);
       const interestSeries = periods.map(p => p.interest ?? null);
@@ -423,19 +488,62 @@
       const showSpd = document.getElementById('showSpend').checked;
 
       const ds = [
+        // Задолженность — СИНИЙ
         {
           label: 'Задолженность (конец периода)',
           data: debtSeries,
-          tension: 0.3,
+          borderColor: COLORS.debt,
+          pointBackgroundColor: COLORS.debt,
+          pointBorderColor: COLORS.debt,
+          pointHoverBackgroundColor: COLORS.debt,
+          pointHoverBorderColor: COLORS.debt,
+          tension: 0.35,
           borderWidth: 3,
           pointRadius: 4,
+          pointHoverRadius: 5,
           fill: false,
         }
       ];
-      if (showMin) ds.push({ label: 'Минимальный платёж', data: minPaySeries, tension: 0.25, borderDash: [6,6], borderWidth: 2, pointRadius: 3, fill: false });
-      if (showInt) ds.push({ label: 'Начисленные проценты', data: interestSeries, tension: 0.25, borderDash: [2,4], borderWidth: 2, pointRadius: 3, fill: false });
-      if (showInc) ds.push({ label: 'Поступления', data: incomeSeries, tension: 0.25, borderDash: [10,6,2,6], borderWidth: 2, pointRadius: 3, fill: false });
-      if (showSpd) ds.push({ label: 'Расходы', data: spendSeries, tension: 0.25, borderDash: [1,5], borderWidth: 2, pointRadius: 3, fill: false });
+      // Мин. платеж — ФИОЛЕТОВЫЙ (пунктир)
+      if (showMin) ds.push({
+        label: 'Минимальный платёж',
+        data: minPaySeries,
+        borderColor: COLORS.minPay,
+        pointBackgroundColor: COLORS.minPay,
+        pointBorderColor: COLORS.minPay,
+        tension: 0.3, borderWidth: 4, pointRadius: 3, fill: false,
+        borderDash: [6,6]
+      });
+      // Проценты — ТЁМНО-ОРАНЖЕВЫЕ (штрих)
+      if (showInt) ds.push({
+        label: 'Начисленные проценты',
+        data: interestSeries,
+        borderColor: COLORS.interest,
+        pointBackgroundColor: COLORS.interest,
+        pointBorderColor: COLORS.interest,
+        tension: 0.3, borderWidth: 4, pointRadius: 3, fill: false,
+        borderDash: [2,4]
+      });
+      // Поступления — ЗЕЛЁНЫЕ (длинный штрих-пунктир)
+      if (showInc) ds.push({
+        label: 'Поступления',
+        data: incomeSeries,
+        borderColor: COLORS.income,
+        pointBackgroundColor: COLORS.income,
+        pointBorderColor: COLORS.income,
+        tension: 0.3, borderWidth: 4, pointRadius: 3, fill: false,
+        borderDash: [10,6,2,6]
+      });
+      // Расходы — КРАСНЫЕ (точечный)
+      if (showSpd) ds.push({
+        label: 'Расходы',
+        data: spendSeries,
+        borderColor: COLORS.spend,
+        pointBackgroundColor: COLORS.spend,
+        pointBorderColor: COLORS.spend,
+        tension: 0.3, borderWidth: 4, pointRadius: 3, fill: false,
+        borderDash: [1,5]
+      });
 
       const config = {
         type: 'line',
@@ -444,19 +552,38 @@
           responsive: true,
           maintainAspectRatio: false,
           interaction: { mode: 'nearest', intersect: false },
+          cubicInterpolationMode: 'monotone',
           plugins: {
-            legend: { display: true, labels: { usePointStyle: true } },
+            legend: {
+              display: true,
+              labels: { usePointStyle: true, color: COLORS.legend, boxWidth: 10, padding: 16 }
+            },
             tooltip: {
+              backgroundColor: '#ffffff',
+              titleColor: '#0f172a',
+              bodyColor: '#0f172a',
+              borderColor: 'rgba(15,23,42,0.15)',
+              borderWidth: 1,
               callbacks: {
                 label: (ctx) => `${ctx.dataset.label}: ${ctx.raw==null ? '—' : rubFmt.format(ctx.raw)}`
               }
             }
           },
           scales: {
-            y: { ticks: { callback: (v) => rubFmt.format(v) } }
+            x: {
+              grid: { color: COLORS.grid, drawBorder: false },
+              ticks: { color: COLORS.ticks }
+            },
+            y: {
+              grid: { color: COLORS.grid, drawBorder: false },
+              ticks: {
+                color: COLORS.ticks,
+                callback: (v) => rubFmt.format(v)
+              }
+            }
           }
         },
-        plugins: [whiteBgPlugin, shadowLinePlugin]
+        plugins: [whiteBgPlugin, overdueBandsPlugin, shadowLinePlugin]
       };
 
       if (chart) chart.destroy();
@@ -502,18 +629,26 @@
       importFile.value = '';
     });
 
-    // ====== Скачивание графика как PNG (белый фон гарантирован whiteBgPlugin) ======
+    // ====== Скачивание графика как PNG (фон — белый) ======
     const downloadBtn = document.getElementById('downloadChartBtn');
     downloadBtn.addEventListener('click', () => {
-      if (!chart) return;
-      const url = chart.toBase64Image('image/png', 1.0);
-      const a = document.createElement('a');
-      a.href = url;
-      const now = new Date();
-      a.download = `debt-chart-${now.toISOString().slice(0,10)}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+        if (!chart) return;
+        // временно увеличим devicePixelRatio для сверхчёткой картинки
+        const prev = chart.options.devicePixelRatio ?? Chart.defaults.devicePixelRatio;
+        chart.options.devicePixelRatio = 3; // 3x масштаб для экспорта
+        chart.resize();
+        const url = chart.toBase64Image('image/png', 1.0);
+        // восстановим DPR и размер
+        chart.options.devicePixelRatio = prev;
+        chart.resize();
+
+        const a = document.createElement('a');
+        a.href = url;
+        const now = new Date();
+        a.download = `debt-chart-${now.toISOString().slice(0,10)}.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
     });
 
     // ====== Инициализация ======
