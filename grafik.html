@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>График задолженности по выпискам</title>
+
+  <!-- Tailwind CSS (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <!-- FileSaver -->
+  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+
+  <!-- ВАЖНО: не используем Tailwind @apply (он требует сборку). Чистый CSS ниже. -->
+  <style>
+    :root { --ring: 0 0 0 2px rgba(79,70,229,.25); }
+    .card {
+      border-radius: 1rem;
+      background: #fff;
+      box-shadow:
+        0 1px 2px rgba(0,0,0,.06),
+        0 8px 24px rgba(15,23,42,.06);
+    }
+    .btn {
+      padding: .5rem 1rem;
+      border-radius: .75rem;
+      font-weight: 500;
+      transition: transform .05s ease, background-color .15s ease;
+      cursor: pointer;
+      user-select: none;
+    }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary {
+      background: #4f46e5; color: #fff;
+    }
+    .btn-primary:hover { background: #4338ca; }
+    .btn-primary:active { background: #3730a3; }
+
+    .btn-secondary {
+      background: #f1f5f9; color: #334155;
+    }
+    .btn-secondary:hover { background: #e2e8f0; }
+    .btn-secondary:active { background: #cbd5e1; }
+
+    .btn-danger { background:#e11d48; color:#fff; }
+    .btn-danger:hover { background:#be123c; }
+    .btn-danger:active { background:#9f1239; }
+
+    .chip {
+      font-size: .75rem; padding: .125rem .5rem;
+      border-radius: 9999px;
+      background: #f1f5f9; color:#334155;
+    }
+    .mono { font-variant-numeric: tabular-nums; }
+
+    textarea:focus, input[type="text"]:focus {
+      outline: none; box-shadow: var(--ring);
+      border-color: #6366f1;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+  <div class="max-w-6xl mx-auto p-4 md:p-8 space-y-6">
+    <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+      <div>
+        <h1 class="text-2xl md:text-3xl font-bold">График задолженности по кредитному продукту</h1>
+        <p class="text-sm text-slate-600 mt-1">
+          Вставляйте месячные выписки — инструмент добавит период в общую ленту и построит диаграмму динамики погашения долга.
+        </p>
+      </div>
+      <div class="flex gap-2">
+        <button id="downloadChartBtn" class="btn btn-primary">Скачать диаграмму (PNG)</button>
+        <button id="exportJsonBtn" class="btn btn-secondary" title="Выгрузить данные в JSON">Экспорт JSON</button>
+        <button id="importJsonBtn" class="btn btn-secondary" title="Загрузить сохранённый JSON">Импорт JSON</button>
+        <input id="importFile" type="file" accept="application/json" class="hidden" />
+      </div>
+    </header>
+
+    <!-- Ввод выписки -->
+    <section class="card p-4 md:p-6 space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-xl font-semibold">Вставьте текст выписки за 1 месяц</h2>
+        <span class="chip">Поддерживается структура, как в примере</span>
+      </div>
+
+      <textarea id="statementInput" rows="10"
+        class="w-full rounded-xl border border-slate-200 p-3 mono"
+        placeholder="Выписка за период с 17 июня по 16 июля
+Долг по выписке
+−79 677,76 ₽
+Минимальный платеж
+−6 100 ₽
+Дата мин. платежа
+10.08.2025
+* Баланс на начало периода
+  −92 892,26
+
+* Баланс на конец периода
+  −79 677,76
+
+* Начисленные проценты
+  −3 743,59
+
+* Расходы
+  −941,91
+
+* Поступления
+  17 900
+..."></textarea>
+
+      <div class="flex flex-wrap gap-2">
+        <button id="parseBtn" class="btn btn-primary">Распарсить</button>
+        <button id="clearInputBtn" class="btn btn-secondary">Очистить</button>
+        <button id="quickAddBtn" class="btn btn-primary">Добавить в диаграмму</button>
+      </div>
+
+      <div id="parsePreview"
+           class="hidden mt-2 p-3 rounded-xl bg-slate-50 border border-slate-200 text-sm grid grid-cols-1 md:grid-cols-2 gap-3"></div>
+
+      <div class="flex justify-end">
+        <button id="addRecordBtn" class="btn btn-primary disabled:opacity-50" disabled>Добавить период (через предпросмотр)</button>
+      </div>
+    </section>
+
+    <!-- Диаграмма -->
+    <section class="card p-4 md:p-6">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-xl font-semibold">Диаграмма динамики задолженности</h2>
+        <div class="flex gap-2 items-center">
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" id="showMinPay" class="rounded" checked>Показывать мин. платеж
+          </label>
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" id="showInterest" class="rounded">Показывать проценты
+          </label>
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" id="showIncome" class="rounded">Показывать поступления
+          </label>
+          <label class="flex items-center gap-2 text-sm">
+            <input type="checkbox" id="showSpend" class="rounded">Показывать расходы
+          </label>
+        </div>
+      </div>
+      <div class="relative" style="height: 380px;">
+        <!-- canvas высотой 280 + внешний контейнер для респонсива -->
+        <canvas id="debtChart" height="280"></canvas>
+      </div>
+    </section>
+
+    <!-- Таблица периодов -->
+    <section class="card p-4 md:p-6">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-xl font-semibold">Периоды</h2>
+        <div class="text-sm text-slate-500">Хранится локально (LocalStorage)</div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead>
+            <tr class="text-left text-slate-500">
+              <th class="py-2 pr-4">Период</th>
+              <th class="py-2 pr-4">Долг по выписке</th>
+              <th class="py-2 pr-4">Баланс конец периода</th>
+              <th class="py-2 pr-4">Мин. платёж</th>
+              <th class="py-2 pr-4">Проценты</th>
+              <th class="py-2 pr-4">Поступления</th>
+              <th class="py-2 pr-4">Расходы</th>
+              <th class="py-2 pr-4">Действия</th>
+            </tr>
+          </thead>
+          <tbody id="periodsTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="py-6 text-center text-xs text-slate-500">
+      © Кредитный трекер · Локально, без сервера
+    </footer>
+  </div>
+
+  <script>
+    // ====== Утилиты форматирования и парсинга ======
+    const nbsp = /\u00A0/g;
+    const spaces = /\s+/g;
+
+    function parseRub(raw) {
+      if (!raw) return null;
+      const s = String(raw)
+        .replace(nbsp, ' ')
+        .replace(/[\u2212\u2012\u2013\u2014]/g, '-') // Unicode минусы → обычный
+        .replace(/[^\d,\-\s]/g, '')                  // цифры, запятая, минус, пробел
+        .replace(spaces, '')                         // убираем пробелы/разделители тыс.
+        .replace(',', '.');                          // RU дробь → точка
+      const val = parseFloat(s);
+      return isNaN(val) ? null : val;
+    }
+
+    const rubFmt = new Intl.NumberFormat('ru-RU', {
+      style: 'currency', currency: 'RUB', maximumFractionDigits: 2
+    });
+
+    function safe(str) { return (str || '').trim(); }
+
+    function extract(lineRE, text) {
+      const m = text.match(lineRE);
+      return m ? safe(m[1]) : '';
+    }
+
+    function parsePeriodLabel(text) {
+      // Пример: "Выписка за период с 17 июня по 16 июля"
+      const m = text.match(/Выписка\s+за\s+период\s+с\s+(.+?)\s+по\s+(.+?)(?:\n|$)/i);
+      if (!m) return '';
+      return `${m[1]} — ${m[2]}`;
+    }
+
+    function parseStatement(text) {
+      const t = text.replace(nbsp, ' ').trim();
+      const period = parsePeriodLabel(t);
+      const debtStr     = extract(/Долг\s+по\s+выписке\s*\n\s*([^\n]+)/i, t);
+      const minPayStr   = extract(/Минимальный\s+платеж\s*\n\s*([^\n]+)/i, t);
+      const minPayDate  = extract(/Дата\s+мин\.?\s*платежа\s*\n\s*([^\n]+)/i, t);
+      const balStartStr = extract(/\*\s*Баланс\s+на\s+начало\s+периода\s*\n\s*([^\n]+)/i, t);
+      const balEndStr   = extract(/\*\s*Баланс\s+на\s+конец\s+периода\s*\n\s*([^\n]+)/i, t);
+      const interestStr = extract(/\*\s*Начисленные\s+проценты\s*\n\s*([^\n]+)/i, t);
+      const incomeStr   = extract(/\*\s*Поступления\s*\n\s*([^\n]+)/i, t);
+      const spendStr    = extract(/\*\s*Расходы\s*\n\s*([^\n]+)/i, t);
+
+      return {
+        id: crypto.randomUUID(),
+        period,
+        debt:     parseRub(debtStr),
+        minPay:   parseRub(minPayStr),
+        minPayDate: safe(minPayDate),
+        balStart: parseRub(balStartStr),
+        balEnd:   parseRub(balEndStr),
+        interest: parseRub(interestStr),
+        income:   parseRub(incomeStr),
+        spend:    parseRub(spendStr),
+        raw: t,
+      };
+    }
+
+    // ====== Состояние и LocalStorage ======
+    const STORAGE_KEY = 'credit-tracker-periods-v1';
+
+    function loadData() {
+      try { const s = localStorage.getItem(STORAGE_KEY); return s ? JSON.parse(s) : []; }
+      catch { return []; }
+    }
+    function saveData(list) { localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); }
+    let periods = loadData();
+
+    // ====== UI элементы ======
+    const statementInput = document.getElementById('statementInput');
+    const parseBtn       = document.getElementById('parseBtn');
+    const clearInputBtn  = document.getElementById('clearInputBtn');
+    const quickAddBtn    = document.getElementById('quickAddBtn');
+    const parsePreview   = document.getElementById('parsePreview');
+    const addRecordBtn   = document.getElementById('addRecordBtn');
+    const tbody          = document.getElementById('periodsTableBody');
+
+    let lastParsed = null;
+
+    function renderPreview(data) {
+      parsePreview.innerHTML = '';
+      const fields = [
+        ['Период', data.period],
+        ['Долг по выписке', data.debt!=null ? rubFmt.format(data.debt) : '—'],
+        ['Баланс начало периода', data.balStart!=null ? rubFmt.format(data.balStart) : '—'],
+        ['Баланс конец периода', data.balEnd!=null ? rubFmt.format(data.balEnd) : '—'],
+        ['Мин. платёж', data.minPay!=null ? rubFmt.format(data.minPay) : '—'],
+        ['Дата мин. платежа', data.minPayDate || '—'],
+        ['Начисленные проценты', data.interest!=null ? rubFmt.format(data.interest) : '—'],
+        ['Поступления', data.income!=null ? rubFmt.format(data.income) : '—'],
+        ['Расходы', data.spend!=null ? rubFmt.format(data.spend) : '—'],
+      ];
+      for (const [label, val] of fields) {
+        const row = document.createElement('div');
+        row.className = 'flex items-center justify-between gap-3';
+        row.innerHTML = `<div class="text-slate-500">${label}</div><div class="font-medium mono">${val}</div>`;
+        parsePreview.appendChild(row);
+      }
+      parsePreview.classList.remove('hidden');
+    }
+
+    parseBtn.addEventListener('click', () => {
+      const text = statementInput.value.trim();
+      if (!text) { parsePreview.classList.add('hidden'); addRecordBtn.disabled = true; return; }
+      const parsed = parseStatement(text);
+      lastParsed = parsed;
+      renderPreview(parsed);
+      const ok = parsed.period && (parsed.balEnd!=null || parsed.debt!=null);
+      addRecordBtn.disabled = !ok;
+    });
+
+    clearInputBtn.addEventListener('click', () => {
+      statementInput.value = '';
+      parsePreview.classList.add('hidden');
+      addRecordBtn.disabled = true;
+    });
+
+    addRecordBtn.addEventListener('click', () => {
+      if (!lastParsed) return;
+      periods.push(lastParsed);
+      saveData(periods);
+      lastParsed = null;
+      statementInput.value = '';
+      parsePreview.classList.add('hidden');
+      addRecordBtn.disabled = true;
+      renderTable(); rebuildChart();
+    });
+
+    // Быстрое добавление: парсим и сразу кидаем в диаграмму/таблицу
+    quickAddBtn.addEventListener('click', () => {
+      const text = statementInput.value.trim();
+      if (!text) { alert('Вставьте текст выписки.'); return; }
+      const parsed = parseStatement(text);
+      const ok = parsed.period && (parsed.balEnd!=null || parsed.debt!=null);
+      if (!ok) { alert('Не удалось распознать ключевые поля (Период и Баланс/Долг). Проверьте структуру текста.'); return; }
+      periods.push(parsed);
+      saveData(periods);
+      statementInput.value = '';
+      parsePreview.classList.add('hidden');
+      addRecordBtn.disabled = true;
+      renderTable(); rebuildChart();
+    });
+
+    // ====== Таблица ======
+    function renderTable() {
+      tbody.innerHTML = '';
+      periods.forEach((p, idx) => {
+        const tr = document.createElement('tr');
+        tr.className = 'border-b border-slate-100';
+        tr.innerHTML = `
+          <td class="py-2 pr-4">${p.period || '—'}</td>
+          <td class="py-2 pr-4 mono">${p.debt!=null ? rubFmt.format(p.debt) : '—'}</td>
+          <td class="py-2 pr-4 mono">${p.balEnd!=null ? rubFmt.format(p.balEnd) : '—'}</td>
+          <td class="py-2 pr-4 mono">${p.minPay!=null ? rubFmt.format(p.minPay) : '—'}</td>
+          <td class="py-2 pr-4 mono">${p.interest!=null ? rubFmt.format(p.interest) : '—'}</td>
+          <td class="py-2 pr-4 mono">${p.income!=null ? rubFmt.format(p.income) : '—'}</td>
+          <td class="py-2 pr-4 mono">${p.spend!=null ? rubFmt.format(p.spend) : '—'}</td>
+          <td class="py-2 pr-4">
+            <div class="flex gap-2">
+              <button class="btn btn-secondary" data-action="edit" data-idx="${idx}">Править</button>
+              <button class="btn btn-danger" data-action="del" data-idx="${idx}">Удалить</button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    tbody.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const idx = +btn.dataset.idx;
+      const action = btn.dataset.action;
+      if (action === 'del') {
+        if (confirm('Удалить этот период?')) {
+          periods.splice(idx, 1);
+          saveData(periods);
+          renderTable(); rebuildChart();
+        }
+      } else if (action === 'edit') {
+        const p = periods[idx];
+        const text = prompt('Отредактируйте период (только подпись):', p.period || '');
+        if (text !== null) {
+          p.period = text.trim();
+          saveData(periods);
+          renderTable(); rebuildChart();
+        }
+      }
+    });
+
+    // ====== Диаграмма ======
+    const ctx = document.getElementById('debtChart');
+    let chart = null;
+
+    // Плагин: белый фон под графиком (экспорт PNG и на экране)
+    const whiteBgPlugin = {
+      id: 'whiteBg',
+      beforeDraw(chart) {
+        const {ctx, width, height} = chart;
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-over';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
+        ctx.restore();
+      }
+    };
+
+    // Плагин: мягкая тень для линий (без приватных API)
+    const shadowLinePlugin = {
+      id: 'shadowLine',
+      beforeDatasetsDraw(chart) {
+        const { ctx } = chart;
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,0.15)';
+        ctx.shadowBlur = 12;
+        ctx.shadowOffsetY = 6;
+      },
+      afterDatasetsDraw(chart) {
+        chart.ctx.restore();
+      }
+    };
+
+    function datasetsFrom(periods) {
+      const labels = periods.map(p => p.period || '—');
+      // основной ряд: баланс конец периода, если нет — долг по выписке
+      const debtSeries     = periods.map(p => (p.balEnd!=null ? p.balEnd : (p.debt!=null ? p.debt : null)));
+      const minPaySeries   = periods.map(p => p.minPay ?? null);
+      const interestSeries = periods.map(p => p.interest ?? null);
+      const incomeSeries   = periods.map(p => p.income ?? null);
+      const spendSeries    = periods.map(p => p.spend  ?? null);
+      return { labels, debtSeries, minPaySeries, interestSeries, incomeSeries, spendSeries };
+    }
+
+    function rebuildChart() {
+      const { labels, debtSeries, minPaySeries, interestSeries, incomeSeries, spendSeries } = datasetsFrom(periods);
+      const showMin = document.getElementById('showMinPay').checked;
+      const showInt = document.getElementById('showInterest').checked;
+      const showInc = document.getElementById('showIncome').checked;
+      const showSpd = document.getElementById('showSpend').checked;
+
+      const ds = [
+        {
+          label: 'Задолженность (конец периода)',
+          data: debtSeries,
+          tension: 0.3,
+          borderWidth: 3,
+          pointRadius: 4,
+          fill: false,
+        }
+      ];
+      if (showMin) ds.push({ label: 'Минимальный платёж', data: minPaySeries, tension: 0.25, borderDash: [6,6], borderWidth: 2, pointRadius: 3, fill: false });
+      if (showInt) ds.push({ label: 'Начисленные проценты', data: interestSeries, tension: 0.25, borderDash: [2,4], borderWidth: 2, pointRadius: 3, fill: false });
+      if (showInc) ds.push({ label: 'Поступления', data: incomeSeries, tension: 0.25, borderDash: [10,6,2,6], borderWidth: 2, pointRadius: 3, fill: false });
+      if (showSpd) ds.push({ label: 'Расходы', data: spendSeries, tension: 0.25, borderDash: [1,5], borderWidth: 2, pointRadius: 3, fill: false });
+
+      const config = {
+        type: 'line',
+        data: { labels, datasets: ds },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'nearest', intersect: false },
+          plugins: {
+            legend: { display: true, labels: { usePointStyle: true } },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => `${ctx.dataset.label}: ${ctx.raw==null ? '—' : rubFmt.format(ctx.raw)}`
+              }
+            }
+          },
+          scales: {
+            y: { ticks: { callback: (v) => rubFmt.format(v) } }
+          }
+        },
+        plugins: [whiteBgPlugin, shadowLinePlugin]
+      };
+
+      if (chart) chart.destroy();
+      chart = new Chart(ctx, config);
+    }
+
+    document.getElementById('showMinPay').addEventListener('change', rebuildChart);
+    document.getElementById('showInterest').addEventListener('change', rebuildChart);
+    document.getElementById('showIncome').addEventListener('change', rebuildChart);
+    document.getElementById('showSpend').addEventListener('change', rebuildChart);
+
+    // ====== Экспорт/Импорт JSON ======
+    const exportBtn = document.getElementById('exportJsonBtn');
+    const importBtn = document.getElementById('importJsonBtn');
+    const importFile = document.getElementById('importFile');
+
+    exportBtn.addEventListener('click', () => {
+      const blob = new Blob([JSON.stringify(periods, null, 2)], { type: 'application/json;charset=utf-8' });
+      saveAs(blob, 'credit-periods.json');
+    });
+
+    importBtn.addEventListener('click', () => importFile.click());
+
+    importFile.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const data = JSON.parse(ev.target.result);
+          if (Array.isArray(data)) {
+            periods = data;
+            saveData(periods);
+            renderTable(); rebuildChart();
+          } else {
+            alert('Неверный формат JSON');
+          }
+        } catch {
+          alert('Не удалось прочитать JSON');
+        }
+      };
+      reader.readAsText(file, 'utf-8');
+      importFile.value = '';
+    });
+
+    // ====== Скачивание графика как PNG (белый фон гарантирован whiteBgPlugin) ======
+    const downloadBtn = document.getElementById('downloadChartBtn');
+    downloadBtn.addEventListener('click', () => {
+      if (!chart) return;
+      const url = chart.toBase64Image('image/png', 1.0);
+      const a = document.createElement('a');
+      a.href = url;
+      const now = new Date();
+      a.download = `debt-chart-${now.toISOString().slice(0,10)}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    });
+
+    // ====== Инициализация ======
+    renderTable();
+    rebuildChart();
+  </script>
+</body>
+</html>
