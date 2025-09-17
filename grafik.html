@@ -461,97 +461,97 @@
       }
     };
 
-    // Таблички со значениями — аккуратное стекование по X (вниз), без наложений
+    // Таблички со значениями (всегда на диаграмме + попадают в экспорт) — улучшенное разведение по вертикали
     const valueLabelsPlugin = {
       id: 'valueLabels',
       afterDatasetsDraw(chart) {
-        const { ctx, chartArea, data, scales } = chart;
+        const { ctx, chartArea, scales } = chart;
         const xScale = scales.x; const yScale = scales.y;
         if (!xScale || !yScale) return;
 
         ctx.save();
         ctx.font = '12px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial';
         ctx.textBaseline = 'middle';
-        const padX = 8, radius = 5, boxH = 24, GAP = 6;
+        const padX = 8, radius = 5, boxH = 24, MARGIN = 4; // MARGIN — минимальный зазор между боксами
 
-        // 1) Сбор кандидатов по всем датасетам
-        const groups = new Map(); // key = Math.round(x), value = array of items
-        data.datasets.forEach((ds, di) => {
+        // Храним все размещённые прямоугольники (для всех датасетов)
+        const placed = [];
+        const intersects = (a, b) => !(a.x + a.w + MARGIN <= b.x || b.x + b.w + MARGIN <= a.x || a.y + a.h + MARGIN <= b.y || b.y + b.h + MARGIN <= a.y);
+        function drawRoundedRect(x, y, w, h, r) {
+          ctx.beginPath();
+          ctx.moveTo(x+r, y);
+          ctx.lineTo(x+w-r, y);
+          ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+          ctx.lineTo(x+w, y+h-r);
+          ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+          ctx.lineTo(x+r, y+h);
+          ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+          ctx.lineTo(x, y+r);
+          ctx.quadraticCurveTo(x, y, x+r, y);
+          ctx.closePath();
+        }
+
+        // Обходим датасеты в порядке их отрисовки (синий первый) — это даёт стабильный слой
+        chart.data.datasets.forEach((ds, di) => {
           const meta = chart.getDatasetMeta(di);
           if (!meta || meta.hidden) return;
-          const pts = meta.data || [];
-          for (let i = 0; i < pts.length; i++) {
-            const el = pts[i];
-            const val = ds.data?.[i];
-            if (!el || val == null || isNaN(val)) continue;
-            const label = rubFmt.format(val);
-            const textW = ctx.measureText(label).width;
-            const w = Math.ceil(textW + padX*2);
-            const cx = el.x, cy = el.y;
-            const baseY = Math.round(cy + 12); // якорь — сразу НИЖЕ точки
-            const key = Math.round(cx);
-            if (!groups.has(key)) groups.set(key, []);
-            groups.get(key).push({
-              cx, cy, w, label,
-              stroke: ds.borderColor || '#0f172a',
-              baseY,
-              index: i,
-            });
-          }
-        });
+          const points = meta.data || [];
+          const stroke = ds.borderColor || '#0f172a';
 
-        // 2) Отрисовка: по X слева→вправо; внутри группы — снизу стопкой без пересечений
-        const keys = Array.from(groups.keys()).sort((a,b)=>a-b);
-        for (const key of keys) {
-          const items = groups.get(key);
-          // сортируем по baseY, чтобы ближайшие к точке шли первыми
-          items.sort((a,b)=>a.baseY - b.baseY);
-          let cursorY = null;
-          for (const it of items) {
-            // позиция коробки
-            let x = Math.round(it.cx - it.w/2);
-            let y = Math.round(it.baseY);
+          for (let i = 0; i < points.length; i++) {
+            const pt = points[i];
+            const val = ds.data[i];
+            if (!pt || val == null || isNaN(val)) continue;
 
-            // выставляем стопкой вниз, исключая наложения
-            if (cursorY == null) cursorY = y;
-            else y = Math.max(y, cursorY + boxH + GAP);
+            const labelText = rubFmt.format(val);
+            const textW = ctx.measureText(labelText).width;
+            const boxW = Math.ceil(textW + padX*2);
 
-            // клаймп в пределах области
-            if (x < chartArea.left + 2) x = chartArea.left + 2;
-            if (x + it.w > chartArea.right - 2) x = chartArea.right - 2 - it.w;
-            if (y < chartArea.top + 2) y = chartArea.top + 2;
-            if (y + boxH > chartArea.bottom - 2) y = chartArea.bottom - 2 - boxH;
+            const cx = pt.x, cy = pt.y;
+            // Базовая позиция: для чётных датасетов пытаемся вверх, для нечётных — вниз (лучше разводит ряды)
+            let prefAbove = (di % 2 === 0);
+            let startY = prefAbove ? Math.round(cy - 12 - boxH) : Math.round(cy + 12);
+            // Если не помещается сверху — стартуем снизу и наоборот
+            if (prefAbove && startY < chartArea.top + 2) startY = Math.round(cy + 12);
+            if (!prefAbove && startY + boxH > chartArea.bottom - 2) startY = Math.round(cy - 12 - boxH);
 
-            // соединительная линия от бокса к точке
-            ctx.strokeStyle = it.stroke;
+            // Начальный кандидат
+            let candidate = { x: Math.round(cx - boxW/2), y: startY, w: boxW, h: boxH };
+            // Доводим по X в пределы чарта
+            if (candidate.x < chartArea.left + 2) candidate.x = chartArea.left + 2;
+            if (candidate.x + candidate.w > chartArea.right - 2) candidate.x = chartArea.right - 2 - candidate.w;
+
+            // Поиск свободного вертикального положения
+            let tries = 0;
+            while (placed.some(r => intersects(r, candidate)) && tries < 32) {
+              // Чередуем направление и постепенно уводим выше/ниже
+              const dir = (tries % 2 === 0 ? -1 : 1) * (prefAbove ? 1 : -1);
+              candidate.y += dir * (boxH + 6);
+              // Клаймп в пределах области
+              if (candidate.y < chartArea.top + 2) candidate.y = chartArea.top + 2;
+              if (candidate.y + candidate.h > chartArea.bottom - 2) candidate.y = chartArea.bottom - 2 - candidate.h;
+              tries++;
+            }
+
+            // Соединительная «ножка» к точке
+            ctx.strokeStyle = stroke;
             ctx.fillStyle = '#ffffff';
             ctx.lineWidth = 1;
-            const legX = Math.max(x+radius, Math.min(it.cx, x+it.w-radius));
-            const legY = y; // бокс ниже точки, тянем линию от верхней кромки
-            ctx.beginPath(); ctx.moveTo(legX, legY); ctx.lineTo(it.cx, it.cy); ctx.stroke();
+            const legX = Math.max(candidate.x+radius, Math.min(cx, candidate.x+candidate.w-radius));
+            const legY = candidate.y < cy ? candidate.y + candidate.h : candidate.y;
+            ctx.beginPath(); ctx.moveTo(legX, legY); ctx.lineTo(cx, cy); ctx.stroke();
 
-            // бокс
-            ctx.beginPath();
-            ctx.moveTo(x+radius, y);
-            ctx.lineTo(x+it.w-radius, y);
-            ctx.quadraticCurveTo(x+it.w, y, x+it.w, y+radius);
-            ctx.lineTo(x+it.w, y+boxH-radius);
-            ctx.quadraticCurveTo(x+it.w, y+boxH, x+it.w-radius, y+boxH);
-            ctx.lineTo(x+radius, y+boxH);
-            ctx.quadraticCurveTo(x, y+boxH, x, y+boxH-radius);
-            ctx.lineTo(x, y+radius);
-            ctx.quadraticCurveTo(x, y, x+radius, y);
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
+            // Бокс
+            drawRoundedRect(candidate.x, candidate.y, candidate.w, candidate.h, radius);
+            ctx.fill(); ctx.stroke();
 
-            // текст
+            // Текст
             ctx.fillStyle = '#0f172a';
-            ctx.fillText(it.label, x + padX, y + boxH/2);
+            ctx.fillText(labelText, candidate.x + padX, candidate.y + candidate.h/2);
 
-            cursorY = y; // обновляем «последний занятый» уровень
+            placed.push(candidate);
           }
-        }
+        });
 
         ctx.restore();
       }
