@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>График платежей — парсер и интерактивная таблица</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+  <style>
+    /* Убираем стрелки у number в разных браузерах, на всякий случай */
+    input[type=number]::-webkit-outer-spin-button,
+    input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type=number] { -moz-appearance: textfield; }
+    /* Тонкие скроллбары */
+    * { scrollbar-width: thin; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+  <div class="max-w-7xl mx-auto p-6">
+    <!-- Header -->
+    <header class="mb-6 flex items-center justify-between">
+      <div>
+        <h1 class="text-2xl md:text-3xl font-semibold tracking-tight">График платежей</h1>
+        <p class="text-sm md:text-base text-slate-500">Вставьте «сырые» данные, нажмите «Разобрать», и получите аккуратную таблицу с суммами, фильтрами и экспортом.</p>
+      </div>
+      <div class="hidden md:flex gap-2 items-center">
+        <button id="btnFillDemo" class="px-3 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm">Заполнить демо</button>
+        <a id="btnDownloadCSV" href="#" class="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm">CSV</a>
+        <button id="btnDownloadXLSX" class="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm">Excel</button>
+      </div>
+    </header>
+
+    <!-- Input + Actions -->
+    <section class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+      <div class="lg:col-span-2">
+        <div class="bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 overflow-hidden">
+          <div class="p-4 flex items-center justify-between border-b border-slate-100">
+            <div class="font-medium">Вставьте данные</div>
+            <div class="flex gap-2">
+              <button id="btnParse" class="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm">Разобрать</button>
+              <button id="btnClear" class="px-3 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm">Очистить</button>
+            </div>
+          </div>
+          <textarea id="rawInput" class="w-full h-64 p-4 font-mono text-sm outline-none focus:ring-0" placeholder="Вставьте сюда блок текста с графиком платежей…"></textarea>
+        </div>
+      </div>
+
+      <div class="lg:col-span-1">
+        <div class="bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 overflow-hidden">
+          <div class="p-4 border-b border-slate-100 font-medium">Фильтры и поиск</div>
+          <div class="p-4 space-y-3">
+            <div>
+              <label for="search" class="block text-sm text-slate-600 mb-1">Поиск</label>
+              <input id="search" type="text" class="w-full rounded-xl border-slate-200 focus:border-indigo-500 focus:ring-indigo-500" placeholder="№, дата, статус, сумма…" />
+            </div>
+            <div class="flex items-center gap-2">
+              <input id="showOverdue" type="checkbox" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+              <label for="showOverdue" class="text-sm text-slate-700">Только просроченные</label>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm text-slate-600 mb-1" for="minDate">С даты</label>
+                <input id="minDate" type="date" class="w-full rounded-xl border-slate-200 focus:border-indigo-500 focus:ring-indigo-500" />
+              </div>
+              <div>
+                <label class="block text-sm text-slate-600 mb-1" for="maxDate">По дату</label>
+                <input id="maxDate" type="date" class="w-full rounded-xl border-slate-200 focus:border-indigo-500 focus:ring-indigo-500" />
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm text-slate-600 mb-1" for="minAmount">Платёж ≥</label>
+                <input id="minAmount" type="number" step="0.01" class="w-full rounded-xl border-slate-200 focus:border-indigo-500 focus:ring-indigo-500" placeholder="0" />
+              </div>
+              <div>
+                <label class="block text-sm text-slate-600 mb-1" for="maxAmount">Платёж ≤</label>
+                <input id="maxAmount" type="number" step="0.01" class="w-full rounded-xl border-slate-200 focus:border-indigo-500 focus:ring-indigo-500" placeholder="∞" />
+              </div>
+            </div>
+            <button id="btnResetFilters" class="w-full mt-1 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm">Сбросить фильтры</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- KPIs -->
+    <section id="kpis" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 opacity-0 transition-opacity"></section>
+
+    <!-- Table -->
+    <section class="bg-white rounded-2xl shadow-sm ring-1 ring-slate-200 overflow-hidden">
+      <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+        <div class="font-medium">Таблица платежей</div>
+        <div class="flex gap-2 md:hidden">
+          <button id="btnFillDemo2" class="px-3 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm">Демо</button>
+          <a id="btnDownloadCSV2" href="#" class="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm">CSV</a>
+          <button id="btnDownloadXLSX2" class="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm">Excel</button>
+        </div>
+      </div>
+      <div class="overflow-auto">
+        <table class="min-w-full text-sm">
+          <thead class="bg-slate-50 sticky top-0 z-10">
+            <tr>
+              <th data-key="idx" class="px-4 py-3 text-left font-semibold text-slate-600 cursor-pointer select-none">№</th>
+              <th data-key="date" class="px-4 py-3 text-left font-semibold text-slate-600 cursor-pointer select-none">Дата</th>
+              <th data-key="status" class="px-4 py-3 text-left font-semibold text-slate-600 cursor-pointer select-none">Статус</th>
+              <th data-key="payment" class="px-4 py-3 text-right font-semibold text-slate-600 cursor-pointer select-none">Сумма платежа</th>
+              <th data-key="balance" class="px-4 py-3 text-right font-semibold text-slate-600 cursor-pointer select-none">Остаток задолжен.</th>
+              <th data-key="principal" class="px-4 py-3 text-right font-semibold text-slate-600 cursor-pointer select-none">Погашение кредита</th>
+              <th data-key="interest" class="px-4 py-3 text-right font-semibold text-slate-600 cursor-pointer select-none">Проценты</th>
+              <th data-key="services" class="px-4 py-3 text-right font-semibold text-slate-600 cursor-pointer select-none">Услуги</th>
+            </tr>
+          </thead>
+          <tbody id="tbody" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+      <div id="emptyState" class="p-8 text-center text-slate-500 hidden">Данные не найдены. Вставьте текст выше и нажмите «Разобрать».</div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-6 text-center text-xs text-slate-400">Сделано на Tailwind CSS. Ничего не отправляется на сервер — всё работает в браузере.</footer>
+  </div>
+
+  <script>
+    // ===== Утилиты форматирования =====
+    const nf = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', maximumFractionDigits: 2 });
+    const nPlain = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
+
+    const MONTHS = {
+      'янв': 0, 'январь': 0, 'января': 0,
+      'фев': 1, 'февраль': 1, 'февраля': 1,
+      'мар': 2, 'март': 2, 'марта': 2,
+      'апр': 3, 'апрель': 3, 'апреля': 3,
+      'май': 4, 'мая': 4,
+      'июн': 5, 'июнь': 5, 'июня': 5,
+      'июл': 6, 'июль': 6, 'июля': 6,
+      'авг': 7, 'август': 7, 'августа': 7,
+      'сен': 8, 'сент': 8, 'сентябрь': 8, 'сентября': 8,
+      'окт': 9, 'октябрь': 9, 'октября': 9,
+      'ноя': 10, 'нояб': 10, 'ноябрь': 10, 'ноября': 10,
+      'дек': 11, 'декабрь': 11, 'декабря': 11,
+    };
+
+    function normalizeNumber(str) {
+      if (str == null) return null;
+      // убираем жирный markdown ** и знак ₽
+      str = String(str).replace(/\*/g, '').replace(/₽/g, '');
+      // заменить неразрывные пробелы и запятые
+      str = str.replace(/\u00A0/g, ' ').replace(/\s+/g, ' ').trim();
+      // иногда встречаются пробелы как разделители тысяч
+      str = str.replace(/\s/g, '');
+      // десятичный разделитель — запятая → точка
+      str = str.replace(',', '.');
+      if (str === '' || str === '-') return 0;
+      const num = Number(str);
+      return isNaN(num) ? null : num;
+    }
+
+    function formatDateISO(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    function parseRuDate(str) {
+      // Принимаем варианты вроде: "18 июня 2021", "18 авг 2021", "18 сент 2022"
+      str = String(str).replace(/\*/g, '').replace(/\u00A0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+      const m = str.match(/^(\d{1,2})\s+([а-яё]{3,})\.?\s+(\d{4})$/i);
+      if (!m) return null;
+      const day = Number(m[1]);
+      const monKey = m[2].slice(0, 4); // берём первые 4 символа для устойчивости (напр. "сент", "нояб")
+      let monIdx = MONTHS[m[2]];
+      if (monIdx == null) monIdx = MONTHS[monKey];
+      const year = Number(m[3]);
+      if (monIdx == null) return null;
+      return new Date(year, monIdx, day);
+    }
+
+    function detectDate(token) {
+      return /\d{1,2}\s+[А-Яа-яЁё]{3,}\.?\s+\d{4}/.test(token.replace(/\*/g, ''));
+    }
+
+    function isOverdueToken(token) {
+      return /просрочен/i.test(token.replace(/\*/g, ''));
+    }
+
+    // ===== Парсер =====
+    function parseSchedule(raw) {
+      // Разбиваем на токены по строкам, чистим мусор, убираем заголовки
+      let lines = String(raw || '')
+        .replace(/\r/g, '\n')
+        .split('\n')
+        .map(s => s.replace(/\*/g, '').trim())
+        .filter(s => s.length > 0);
+
+      // Удаляем явные заголовки
+      const headerKeys = [
+        'график платежей','дата платежа','сумма платежа','остаток задолжен','погашение кредита','проценты','услуги'
+      ];
+      lines = lines.filter(s => !headerKeys.some(h => s.toLowerCase().includes(h)));
+
+      const rows = [];
+      for (let i = 0; i < lines.length; i++) {
+        const tok = lines[i];
+
+        // Ищем начало строки — номер
+        if (!/^\d{1,3}$/.test(tok)) continue;
+        const idx = Number(tok);
+
+        // Следующий значимый токен — дата
+        let j = i + 1;
+        while (j < lines.length && !detectDate(lines[j])) j++;
+        if (j >= lines.length) break;
+        const dateStr = lines[j];
+        const date = parseRuDate(dateStr);
+
+        // После даты может быть слово «Просрочен» отдельной строкой
+        let status = 'Обычный';
+        let k = j + 1;
+        if (k < lines.length && isOverdueToken(lines[k])) { status = 'Просрочен'; k++; }
+
+        // Далее ожидаем 5 числовых полей: payment, balance, principal, interest, services
+        const nums = [];
+        for (; k < lines.length && nums.length < 5; k++) {
+          // Останавливаемся, если встретили следующий номер (начало новой записи)
+          if (/^\d{1,3}$/.test(lines[k])) break;
+          if (detectDate(lines[k])) break;
+          if (isOverdueToken(lines[k])) continue;
+          const val = normalizeNumber(lines[k]);
+          if (val != null) nums.push(val);
+        }
+
+        if (nums.length >= 5 && date) {
+          const [payment, balance, principal, interest, services] = nums;
+          rows.push({ idx, date, status, payment, balance, principal, interest, services });
+          i = k - 1; // перескакиваем к концу обработанного блока
+        }
+      }
+
+      // Сортируем по idx, чтобы восстановить порядок
+      rows.sort((a, b) => a.idx - b.idx);
+      return rows;
+    }
+
+    // ===== Рендеринг =====
+    let DATA = [];
+    let SORT = { key: 'idx', dir: 'asc' };
+
+    function renderKpis(rows) {
+      const el = document.getElementById('kpis');
+      if (!rows.length) { el.classList.add('opacity-0'); el.innerHTML = ''; return; }
+
+      const sum = (arr, key) => arr.reduce((acc, x) => acc + (x[key] || 0), 0);
+      const paid = sum(rows, 'payment');
+      const principals = sum(rows, 'principal');
+      const interests = sum(rows, 'interest');
+      const services = sum(rows, 'services');
+      const lastBalance = rows.length ? rows[rows.length - 1].balance : 0;
+
+      const kpi = (label, value, hint) => `
+        <div class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div class="text-xs text-slate-500">${label}</div>
+          <div class="mt-1 text-lg font-semibold">${value}</div>
+          ${hint ? `<div class="mt-1 text-[11px] text-slate-400">${hint}</div>` : ''}
+        </div>`;
+
+      el.innerHTML = [
+        kpi('Всего платежей', nf.format(paid), `включая ${nPlain.format(rows.length)} запис.`),
+        kpi('Погашено основного долга', nf.format(principals)),
+        kpi('Проценты', nf.format(interests)),
+        kpi('Услуги', nf.format(services) + (services === 0 ? ' (нет комиссий)' : '')),
+      ].join('');
+
+      el.classList.remove('opacity-0');
+    }
+
+    function applyFilters(rows) {
+      const q = document.getElementById('search').value.trim().toLowerCase();
+      const onlyOverdue = document.getElementById('showOverdue').checked;
+      const minDate = document.getElementById('minDate').value ? new Date(document.getElementById('minDate').value) : null;
+      const maxDate = document.getElementById('maxDate').value ? new Date(document.getElementById('maxDate').value) : null;
+      const minAmount = document.getElementById('minAmount').value ? Number(document.getElementById('minAmount').value) : null;
+      const maxAmount = document.getElementById('maxAmount').value ? Number(document.getElementById('maxAmount').value) : null;
+
+      return rows.filter(r => {
+        if (onlyOverdue && r.status !== 'Просрочен') return false;
+        if (minDate && r.date < minDate) return false;
+        if (maxDate && r.date > maxDate) return false;
+        if (minAmount != null && r.payment < minAmount) return false;
+        if (maxAmount != null && r.payment > maxAmount) return false;
+        if (q) {
+          const hay = [
+            r.idx,
+            formatDateISO(r.date),
+            r.status.toLowerCase(),
+            r.payment, r.balance, r.principal, r.interest, r.services
+          ].join(' ').toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById('tbody');
+      const empty = document.getElementById('emptyState');
+
+      let rows = [...DATA];
+      // сортировка
+      rows.sort((a, b) => {
+        const { key, dir } = SORT;
+        const mul = dir === 'asc' ? 1 : -1;
+        if (key === 'date') return (a.date - b.date) * mul;
+        return (a[key] - b[key]) * mul;
+      });
+
+      // фильтры
+      rows = applyFilters(rows);
+
+      if (!rows.length) {
+        tbody.innerHTML = '';
+        empty.classList.remove('hidden');
+        renderKpis([]);
+        return;
+      }
+
+      empty.classList.add('hidden');
+      renderKpis(rows);
+
+      const badge = (status) => status === 'Просрочен'
+        ? '<span class="px-2 py-1 text-[11px] rounded-full bg-rose-100 text-rose-700">Просрочен</span>'
+        : '<span class="px-2 py-1 text-[11px] rounded-full bg-emerald-100 text-emerald-700">Обычный</span>';
+
+      tbody.innerHTML = rows.map(r => `
+        <tr class="hover:bg-slate-50">
+          <td class="px-4 py-3 font-medium text-slate-700">${r.idx}</td>
+          <td class="px-4 py-3 whitespace-nowrap">${r.date.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' })}</td>
+          <td class="px-4 py-3">${badge(r.status)}</td>
+          <td class="px-4 py-3 text-right tabular-nums">${nf.format(r.payment)}</td>
+          <td class="px-4 py-3 text-right tabular-nums">${nf.format(r.balance)}</td>
+          <td class="px-4 py-3 text-right tabular-nums">${nf.format(r.principal)}</td>
+          <td class="px-4 py-3 text-right tabular-nums">${nf.format(r.interest)}</td>
+          <td class="px-4 py-3 text-right tabular-nums">${nf.format(r.services)}</td>
+        </tr>
+      `).join('');
+    }
+
+    // ===== Экспорт CSV =====
+    function toCSV(rows) {
+      const esc = v => '"' + String(v).replace(/"/g, '""') + '"';
+      const header = ['№','Дата','Статус','Сумма платежа','Остаток задолжен.','Погашение кредита','Проценты','Услуги'];
+      const lines = [header.join(';')];
+      for (const r of rows) {
+        lines.push([
+          r.idx,
+          r.date.toLocaleDateString('ru-RU'),
+          r.status,
+          r.payment.toFixed(2).replace('.', ','),
+          r.balance.toFixed(2).replace('.', ','),
+          r.principal.toFixed(2).replace('.', ','),
+          r.interest.toFixed(2).replace('.', ','),
+          r.services.toFixed(2).replace('.', ',')
+        ].map(esc).join(';'));
+      }
+      return lines.join('\n');
+    }
+
+    function downloadCSV(filename = 'schedule.csv') {
+      const rows = applyFilters([...DATA]);
+      const csv = toCSV(rows);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      document.getElementById('btnDownloadCSV').href = url;
+      document.getElementById('btnDownloadCSV').download = filename;
+      document.getElementById('btnDownloadCSV2').href = url;
+      document.getElementById('btnDownloadCSV2').download = filename;
+    }
+
+    // ===== Экспорт Excel (XLSX) =====
+    function downloadXLSX(filename = 'schedule.xlsx') {
+      const rows = applyFilters([...DATA]);
+      const wb = new ExcelJS.Workbook();
+      wb.created = new Date();
+      wb.modified = new Date();
+      const ws = wb.addWorksheet('График');
+
+      // Column definitions with headers and widths
+      ws.columns = [
+        { header: '№', key: 'idx', width: 6 },
+        { header: 'Дата', key: 'date', width: 16 },
+        { header: 'Статус', key: 'status', width: 14 },
+        { header: 'Сумма платежа', key: 'payment', width: 18, style: { numFmt: '#,##0.00\\ "₽"' } },
+        { header: 'Остаток задолжен.', key: 'balance', width: 20, style: { numFmt: '#,##0.00\\ "₽"' } },
+        { header: 'Погашение кредита', key: 'principal', width: 20, style: { numFmt: '#,##0.00\\ "₽"' } },
+        { header: 'Проценты', key: 'interest', width: 14, style: { numFmt: '#,##0.00\\ "₽"' } },
+        { header: 'Услуги', key: 'services', width: 12, style: { numFmt: '#,##0.00\\ "₽"' } },
+      ];
+
+      // Header styling
+      const headerRow = ws.getRow(1);
+      headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+      headerRow.height = 22;
+      headerRow.eachCell((cell) => {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF1F2937' } // slate-800
+        };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          right: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+        };
+      });
+
+      // Data rows
+      rows.forEach((r) => {
+        ws.addRow({
+          idx: r.idx,
+          date: r.date,
+          status: r.status,
+          payment: r.payment,
+          balance: r.balance,
+          principal: r.principal,
+          interest: r.interest,
+          services: r.services,
+        });
+      });
+
+      // Format date column and align numeric columns
+      ws.getColumn('date').numFmt = 'dd.mm.yyyy';
+      ['payment','balance','principal','interest','services'].forEach(key => {
+        ws.getColumn(key).alignment = { horizontal: 'right' };
+      });
+      ws.getColumn('status').alignment = { horizontal: 'center' };
+
+      // Zebra striping and borders
+      const lastRow = ws.rowCount;
+      for (let i = 2; i <= lastRow; i++) {
+        const row = ws.getRow(i);
+        const isEven = i % 2 === 0;
+        row.eachCell((cell, colNumber) => {
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+            left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+            bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+            right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+          };
+          if (isEven) {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } }; // slate-50
+          }
+        });
+        // Colorize status cell
+        const statusCell = ws.getCell(i, 3); // column C
+        const status = String(statusCell.value || '').toLowerCase();
+        if (status.includes('просроч')) {
+          statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE4E6' } }; // rose-50
+          statusCell.font = { color: { argb: 'FFB91C1C' }, bold: true }; // rose-700
+          statusCell.alignment = { horizontal: 'center' };
+        } else {
+          statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFDF5' } }; // emerald-50
+          statusCell.font = { color: { argb: 'FF047857' }, bold: true }; // emerald-700
+          statusCell.alignment = { horizontal: 'center' };
+        }
+      }
+
+      // Auto filter and freeze header
+      ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 8 } };
+      ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 1 }];
+
+      // Add a summary sheet with KPIs
+      const sumSheet = wb.addWorksheet('Итоги');
+      sumSheet.columns = [
+        { header: 'Показатель', key: 'k', width: 30 },
+        { header: 'Значение', key: 'v', width: 25 }
+      ];
+      const paid = rows.reduce((a, r) => a + (r.payment || 0), 0);
+      const principals = rows.reduce((a, r) => a + (r.principal || 0), 0);
+      const interests = rows.reduce((a, r) => a + (r.interest || 0), 0);
+      const services = rows.reduce((a, r) => a + (r.services || 0), 0);
+      [
+        ['Всего платежей', paid],
+        ['Погашено основного долга', principals],
+        ['Проценты', interests],
+        ['Услуги', services],
+        ['Записей', rows.length]
+      ].forEach(([k,v]) => sumSheet.addRow({ k, v }));
+      sumSheet.getColumn('v').numFmt = '#,##0.00\\ "₽"';
+      sumSheet.getRow(1).font = { bold: true };
+      sumSheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 2 } };
+
+      // Write and download
+      wb.xlsx.writeBuffer().then((buffer) => {
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        saveAs(blob, filename);
+      });
+    }
+
+    // ===== Демоданные (обрезанные) =====
+    const DEMO = `График платежей\n№\nДата платежа\nСумма платежа, ₽\nОстаток задолжен., ₽\nПогашение кредита, ₽\nПроценты, ₽\nУслуги, ₽\n1\n18 июня 2021\n7 650,00\n165 102,56\n2 897,44\n3 593,36\n1 159,20\n2\n18 июля 2021\n7 650,00\n161 475,05\n3 627,51\n2 863,29\n1 159,20\n10\n18 марта 2022\nПросрочен\n7 650,00\n132 368,99\n5 419,71\n2 230,29\n0,00\n39\n18 авг 2024\n7 710,00\n104 870,83\n0,00\n7 710,00\n0,00\n40\n18 сент 2024\n3 990,52\n97 160,83\n3 940,54\n49,98\n0,00\n51\n18 сент 2025\n0,00\n82 948,26\n0,00\n0,00\n0,00`;
+
+    // ===== Инициализация и события =====
+    function parseAndRender() {
+      const raw = document.getElementById('rawInput').value;
+      DATA = parseSchedule(raw);
+      renderTable();
+      downloadCSV();
+    }
+
+    document.getElementById('btnParse').addEventListener('click', parseAndRender);
+    document.getElementById('btnClear').addEventListener('click', () => {
+      document.getElementById('rawInput').value = '';
+      DATA = [];
+      renderTable();
+      downloadCSV();
+    });
+
+    document.getElementById('btnFillDemo').addEventListener('click', () => {
+      document.getElementById('rawInput').value = DEMO;
+      parseAndRender();
+    });
+    document.getElementById('btnFillDemo2').addEventListener('click', () => {
+      document.getElementById('rawInput').value = DEMO;
+      parseAndRender();
+    });
+    document.getElementById('btnDownloadXLSX').addEventListener('click', () => {
+      downloadXLSX('schedule.xlsx');
+    });
+    document.getElementById('btnDownloadXLSX2').addEventListener('click', () => {
+      downloadXLSX('schedule.xlsx');
+    });
+
+    // Фильтры + поиск → ререндер
+    ['search','showOverdue','minDate','maxDate','minAmount','maxAmount'].forEach(id => {
+      document.getElementById(id).addEventListener('input', () => { renderTable(); downloadCSV(); });
+      document.getElementById(id).addEventListener('change', () => { renderTable(); downloadCSV(); });
+    });
+
+    // Сортировка по клику на заголовок
+    document.querySelectorAll('thead th').forEach(th => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.key;
+        if (!key) return;
+        if (SORT.key === key) {
+          SORT.dir = SORT.dir === 'asc' ? 'desc' : 'asc';
+        } else {
+          SORT.key = key; SORT.dir = 'asc';
+        }
+        // визуальная подсветка
+        document.querySelectorAll('thead th').forEach(x => x.classList.remove('text-indigo-600'));
+        th.classList.add('text-indigo-600');
+        renderTable();
+      });
+    });
+
+    // Обновление CSV ссылок при старте
+    downloadCSV();
+    // Пустое состояние
+    renderTable();
+  </script>
+</body>
+</html>
