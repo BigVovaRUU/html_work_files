@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ru" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8">
+  <title>Современный блог</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter','sans-serif'] },
+          colors: {
+            brand: { 500: '#0ea5e9', 600: '#0284c7' }
+          },
+          boxShadow: {
+            glow: '0 0 20px rgba(14,165,233,.4)'
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    .trans { transition: all .25s ease; }
+    .line-clamp-3 {
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+  </style>
+
+  <script>
+    // применяем тему раньше рендера
+    if (localStorage.theme === 'dark' || (!('theme' in localStorage) && matchMedia('(prefers-color-scheme: dark)').matches)) {
+      document.documentElement.classList.add('dark')
+    }
+  </script>
+</head>
+<body class="bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100 font-sans">
+  <!-- Прогресс прокрутки -->
+  <div id="progress" class="fixed top-0 left-0 h-1 bg-brand-500 w-0 z-50"></div>
+
+  <!-- Навигация -->
+  <header class="sticky top-0 bg-white/80 dark:bg-slate-900/80 backdrop-blur border-b border-slate-200 dark:border-slate-800 z-40">
+    <div class="max-w-6xl mx-auto px-4 flex items-center justify-between py-3">
+      <a href="#" class="flex items-center gap-2 font-bold text-lg">
+        <span class="bg-brand-500 text-white rounded-lg px-2 py-1">✦</span> Блог
+      </a>
+      <div class="flex items-center gap-3">
+        <button id="searchBtn" class="px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl trans">🔍</button>
+        
+        <!-- Переключатель темы -->
+        <label class="inline-flex items-center relative cursor-pointer" id="themeToggle">
+          <input class="peer hidden" id="toggle" type="checkbox" />
+          <div
+            class="relative w-[110px] h-[50px] bg-white peer-checked:bg-zinc-500 rounded-full
+                   after:absolute after:content-[''] after:w-[40px] after:h-[40px]
+                   after:bg-gradient-to-r from-orange-500 to-yellow-400 peer-checked:after:from-zinc-900 peer-checked:after:to-zinc-900
+                   after:rounded-full after:top-[5px] after:left-[5px]
+                   active:after:w-[50px] peer-checked:after:left-[105px] peer-checked:after:translate-x-[-100%]
+                   shadow-sm duration-300 after:duration-300 after:shadow-md">
+          </div>
+          <!-- ☀ -->
+          <svg
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+            class="fill-white peer-checked:opacity-60 absolute w-5 h-5 left-[13px]"
+          >
+            <path
+              d="M12,17c-2.76,0-5-2.24-5-5s2.24-5,5-5,5,2.24,5,5-2.24,5-5,5Z M13,0h-2V5h2V0Z M13,19h-2v5h2v-5Z M5,11H0v2H5v-2Z M24,11h-5v2h5v-2Z M21.19,4.22l-1.41-1.41-3.54,3.54,1.41,1.41,3.54-3.54ZM7.76,17.66l-1.41-1.41-3.54,3.54,1.41,1.41,3.54-3.54Zm0-11.31l-3.54-3.54-1.41,1.41,3.54,3.54,1.41-1.41Zm13.44,13.44l-3.54-3.54-1.41,1.41,3.54,3.54,1.41-1.41Z"
+            ></path>
+          </svg>
+          <!-- 🌙 -->
+          <svg
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+            class="fill-black opacity-60 peer-checked:opacity-70 peer-checked:fill-white absolute w-5 h-5 right-[13px]"
+          >
+            <path
+              d="M12.009,24A12.067,12.067,0,0,1,.075,10.725,12.121,12.121,0,0,1,10.1.152a13,13,0,0,1,5.03.206,2.5,2.5,0,0,1,1.8,1.8,2.47,2.47,0,0,1-.7,2.425c-4.559,4.168-4.165,10.645.807,14.412h0a2.5,2.5,0,0,1-.7,4.319A13.875,13.875,0,0,1,12.009,24Zm.074-22a10.776,10.776,0,0,0-1.675.127,10.1,10.1,0,0,0-8.344,8.8A9.928,9.928,0,0,0,4.581,18.7a10.473,10.473,0,0,0,11.093,2.734.5.5,0,0,0,.138-.856h0C9.883,16.1,9.417,8.087,14.865,3.124a.459.459,0,0,0,.127-.465.491.491,0,0,0-.356-.362A10.68,10.68,0,0,0,12.083,2ZM20.5,12a1,1,0,0,1-.97-.757l-.358-1.43L17.74,9.428a1,1,0,0,1,.035-1.94l1.4-.325.351-1.406a1,1,0,0,1,1.94,0l.355,1.418,1.418.355a1,1,0,0,1,0,1.94l-1.418.355-.355,1.418A1,1,0,0,1,20.5,12ZM16,14a1,1,0,0,0,2,0A1,1,0,0,0,16,14Zm6,4a1,1,0,0,0,2,0A1,1,0,0,0,22,18Z"
+            ></path>
+          </svg>
+        </label>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="max-w-6xl mx-auto px-4 py-12 grid md:grid-cols-2 gap-8 items-center">
+    <div>
+      <h1 class="text-4xl font-extrabold leading-tight">Современный <span class="text-brand-500">блог</span> о дизайне и разработке</h1>
+      <p class="mt-4 text-lg text-slate-600 dark:text-slate-300">Примеры, практики, UI-паттерны и заметки о продуктивности.</p>
+      <div class="mt-6 flex gap-3">
+        <a href="#posts" class="px-5 py-3 bg-brand-500 text-white rounded-xl shadow-glow trans hover:-translate-y-0.5">Читать посты</a>
+        <a href="#subscribe" class="px-5 py-3 border border-slate-300 dark:border-slate-700 rounded-xl trans hover:bg-slate-100 dark:hover:bg-slate-800">Подписаться</a>
+      </div>
+    </div>
+    <img src="https://picsum.photos/seed/bloghero/800/500" class="rounded-3xl shadow-lg" alt="hero">
+  </section>
+
+  <!-- Поиск -->
+  <section id="searchBox" class="hidden fixed inset-0 bg-black/40 z-50">
+    <div class="max-w-2xl mx-auto mt-24 bg-white dark:bg-slate-900 p-6 rounded-2xl">
+      <div class="flex gap-2">
+        <input id="searchInput" placeholder="Поиск по постам..." class="flex-1 bg-transparent outline-none">
+        <button id="searchClose" class="px-3 py-2">✕</button>
+      </div>
+      <div id="searchResults" class="mt-4 divide-y divide-slate-200 dark:divide-slate-800"></div>
+    </div>
+  </section>
+
+  <!-- Лента постов -->
+  <section id="posts" class="max-w-6xl mx-auto px-4 py-12">
+    <h2 class="text-2xl font-bold mb-6">Последние посты</h2>
+    <div id="postGrid" class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+    <div class="mt-8 text-center">
+      <button id="loadMore" class="px-5 py-3 bg-slate-900 text-white dark:bg-brand-500 dark:text-slate-900 rounded-xl trans">Показать ещё</button>
+    </div>
+  </section>
+
+  <!-- Подписка -->
+  <section id="subscribe" class="max-w-4xl mx-auto px-4 py-12">
+    <div class="rounded-2xl border border-slate-200 dark:border-slate-800 p-6 bg-slate-50 dark:bg-slate-900">
+      <h2 class="text-xl font-bold mb-2">Подпишитесь ✉️</h2>
+      <p class="mb-4 text-slate-600 dark:text-slate-300">Раз в неделю лучшие статьи прямо на почту.</p>
+      <form id="newsletter" class="flex gap-2">
+        <input type="email" placeholder="you@example.com" required class="flex-1 px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-700">
+        <button class="px-5 py-3 bg-brand-500 text-white rounded-xl">OK</button>
+      </form>
+      <p id="newsMsg" class="mt-2 text-sm"></p>
+    </div>
+  </section>
+
+  <footer class="py-6 text-center text-slate-500 border-t border-slate-200 dark:border-slate-800">
+    © <span id="year"></span> Современный блог
+  </footer>
+
+  <!-- Шаблон карточки -->
+  <template id="cardTpl">
+    <article class="rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-white dark:bg-slate-900 trans hover:-translate-y-0.5">
+      <img data-src="" alt="" class="w-full h-40 object-cover">
+      <div class="p-4">
+        <h3 class="font-bold text-lg title"></h3>
+        <p class="mt-2 text-slate-600 dark:text-slate-300 line-clamp-3 excerpt"></p>
+        <div class="mt-3 text-sm flex items-center justify-between">
+          <span class="date text-slate-500"></span>
+          <button class="openBtn text-brand-600 hover:underline">Читать</button>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <!-- Модалка поста -->
+  <template id="postModalTpl">
+    <div class="fixed inset-0 z-50 flex items-center justify-center">
+      <div class="absolute inset-0 bg-black/50"></div>
+      <div class="relative bg-white dark:bg-slate-900 max-w-2xl w-full rounded-2xl p-6 shadow-2xl">
+        <h3 class="text-2xl font-bold modalTitle"></h3>
+        <p class="mt-2 text-slate-600 dark:text-slate-300 modalContent"></p>
+        <div class="mt-6 text-right">
+          <button class="closeBtn px-4 py-2 border border-slate-300 dark:border-slate-700 rounded-xl">Закрыть</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- JS -->
+  <script type="module">
+    const qs = s => document.querySelector(s);
+    const POSTS = [
+      {id:1,title:"Микро-анимации в UI",excerpt:"Как использовать motion, чтобы ускорять восприятие.",content:"Микро-анимации помогают лучше понимать интерфейс. Используйте transform и transition для плавности.",date:"2025-09-01",image:"https://picsum.photos/seed/a1/600/400"},
+      {id:2,title:"Оптимизация Next.js",excerpt:"Разбираем практики lazy-loading и оптимизацию картинок.",content:"Используйте WebP и AVIF. Подключайте динамический импорт модулей для ускорения.",date:"2025-08-20",image:"https://picsum.photos/seed/a2/600/400"},
+      {id:3,title:"Фокус и продуктивность",excerpt:"Методики Deep Work и 90+20.",content:"Фокус достигается блокировкой уведомлений и циклом 90/20.",date:"2025-07-15",image:"https://picsum.photos/seed/a3/600/400"},
+      {id:4,title:"Tailwind-рецепты",excerpt:"15 готовых паттернов UI для копирования.",content:"Карточки, формы, кнопки — всё в одном месте.",date:"2025-07-01",image:"https://picsum.photos/seed/a4/600/400"},
+      {id:5,title:"AI и тексты",excerpt:"Как ускорить написание статей с помощью AI.",content:"AI помогает собрать черновик, а автор правит смысл и стиль.",date:"2025-06-12",image:"https://picsum.photos/seed/a5/600/400"},
+    ];
+
+    let page=1, size=3;
+
+    function renderPosts(){
+      const grid=qs("#postGrid");
+      grid.innerHTML="";
+      POSTS.slice(0,page*size).forEach(p=>{
+        const card=document.importNode(qs("#cardTpl").content,true);
+        card.querySelector("img").src=p.image;
+        card.querySelector(".title").textContent=p.title;
+        card.querySelector(".excerpt").textContent=p.excerpt;
+        card.querySelector(".date").textContent=new Date(p.date).toLocaleDateString("ru-RU");
+        card.querySelector(".openBtn").onclick=()=>openPost(p);
+        grid.append(card);
+      });
+    }
+    renderPosts();
+    qs("#loadMore").onclick=()=>{page++;renderPosts();};
+
+    function openPost(p){
+      const view=document.importNode(qs("#postModalTpl").content,true);
+      view.querySelector(".modalTitle").textContent=p.title;
+      view.querySelector(".modalContent").textContent=p.content;
+      const wrap=view.children[0];
+      wrap.querySelector(".closeBtn").onclick=()=>wrap.remove();
+      document.body.append(view);
+    }
+
+    // Тема (с новым переключателем)
+    const themeToggle = qs("#themeToggle input");
+    function applyTheme(isDark) {
+      if (isDark) {
+        document.documentElement.classList.add("dark");
+        localStorage.theme = "dark";
+        themeToggle.checked = true;
+      } else {
+        document.documentElement.classList.remove("dark");
+        localStorage.theme = "light";
+        themeToggle.checked = false;
+      }
+    }
+    themeToggle.addEventListener("change", e => applyTheme(e.target.checked));
+    applyTheme(document.documentElement.classList.contains("dark"));
+
+    // Прогресс прокрутки
+    window.addEventListener("scroll",()=>{
+      const d=document.documentElement;
+      qs("#progress").style.width=(d.scrollTop/(d.scrollHeight-d.clientHeight))*100+"%";
+    });
+
+    // Поиск
+    const searchBox=qs("#searchBox"),searchResults=qs("#searchResults");
+    qs("#searchBtn").onclick=()=>{searchBox.classList.remove("hidden");qs("#searchInput").focus();}
+    qs("#searchClose").onclick=()=>searchBox.classList.add("hidden");
+    qs("#searchInput").oninput=e=>{
+      const q=e.target.value.toLowerCase();
+      searchResults.innerHTML="";
+      if(!q) return;
+      POSTS.filter(p=>p.title.toLowerCase().includes(q)||p.excerpt.toLowerCase().includes(q)).forEach(p=>{
+        const div=document.createElement("div");
+        div.className="p-3 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer";
+        div.innerHTML=`<div class='font-bold'>${p.title}</div><div class='text-sm text-slate-500'>${p.excerpt}</div>`;
+        div.onclick=()=>{openPost(p);searchBox.classList.add("hidden");};
+        searchResults.append(div);
+      });
+    };
+
+    // Подписка
+    qs("#newsletter").onsubmit=e=>{
+      e.preventDefault();
+      qs("#newsMsg").textContent="Спасибо! Проверьте почту 📬";
+      qs("#newsMsg").className="text-green-600 mt-2";
+      e.target.reset();
+    };
+
+    qs("#year").textContent=new Date().getFullYear();
+  </script>
+</body>
+</html>
