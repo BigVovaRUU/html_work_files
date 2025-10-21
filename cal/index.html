@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Пенсионный калькулятор: акции + аренда</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="icon" href="data:,">
+  <style>
+    /* Мелкие улучшения UX */
+    input[type="number"]::-webkit-outer-spin-button,
+    input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    input[type="number"] { -moz-appearance: textfield; }
+    .card { @apply bg-white/90 backdrop-blur rounded-2xl shadow p-5; }
+    .grid-cols-responsive { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+    .muted { @apply text-slate-500; }
+  </style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-900">
+  <header class="sticky top-0 z-40 bg-white/80 backdrop-blur border-b">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
+      <h1 class="text-2xl font-bold">Пенсионный калькулятор — акции + недвижимость</h1>
+      <span class="muted hidden sm:inline">реальные ₽, помесячная симуляция</span>
+      <div class="ml-auto flex items-center gap-2">
+        <button id="btnReset" class="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200">Сброс</button>
+        <button id="btnSave" class="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200">Сохранить</button>
+        <button id="btnLoad" class="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200">Загрузить</button>
+        <button id="btnShare" class="px-3 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700">Поделиться</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+    <!-- Профиль -->
+    <section class="card">
+      <h2 class="text-xl font-semibold mb-4">1) Профиль и сроки</h2>
+      <div class="grid gap-4 md:grid-cols-3">
+        <label class="flex flex-col gap-1">
+          <span>Дата рождения</span>
+          <input id="dob" type="date" class="rounded-xl border p-2" />
+          <span id="ageOut" class="text-sm muted"></span>
+        </label>
+        <label class="flex flex-col gap-1">
+          <span>Старт инвестиций</span>
+          <input id="startDate" type="month" class="rounded-xl border p-2" />
+        </label>
+        <label class="flex flex-col gap-1">
+          <span>Выход на пенсию (лет)</span>
+          <input id="retAge" type="number" min="40" max="90" step="1" class="rounded-xl border p-2" />
+          <span id="retDateOut" class="text-sm muted"></span>
+        </label>
+      </div>
+    </section>
+
+    <!-- Доход и взносы -->
+    <section class="card">
+      <h2 class="text-xl font-semibold mb-4">2) Доход и взносы</h2>
+      <div class="grid gap-4 md:grid-cols-3">
+        <label class="flex flex-col gap-1">
+          <span>Текущий доход (₽/мес)</span>
+          <input id="income" type="number" min="0" step="1000" class="rounded-xl border p-2" />
+        </label>
+
+        <label class="flex flex-col gap-1">
+          <span>Взнос (режим)</span>
+          <select id="contribMode" class="rounded-xl border p-2">
+            <option value="percent">Доля от дохода (%)</option>
+            <option value="fixed">Фиксированная сумма (₽/мес)</option>
+          </select>
+        </label>
+
+        <label class="flex flex-col gap-1">
+          <span id="contribLabel">Доля взноса от дохода (%)</span>
+          <input id="contribValue" type="number" min="0" step="0.1" class="rounded-xl border p-2" />
+        </label>
+
+        <label class="flex flex-col gap-1">
+          <span>Рост взноса (реально), % в год</span>
+          <input id="contribGrowth" type="number" min="0" step="0.1" class="rounded-xl border p-2" />
+          <span class="text-sm muted">Автоматически повышать взнос сверх инфляции</span>
+        </label>
+
+        <label class="flex flex-col gap-1">
+          <span>Реальный рост дохода, % в год</span>
+          <input id="incomeGrowth" type="number" min="0" step="0.1" class="rounded-xl border p-2" />
+          <span class="text-sm muted">Влияет, если режим взноса — «доля от дохода»</span>
+        </label>
+
+        <label class="flex flex-col gap-1">
+          <span>Стартовый капитал (₽)</span>
+          <input id="initialCapital" type="number" min="0" step="10000" class="rounded-xl border p-2" />
+        </label>
+      </div>
+    </section>
+
+    <!-- Доходности -->
+    <section class="card">
+      <h2 class="text-xl font-semibold mb-4">3) Доходность и параметры вывода</h2>
+      <div class="grid gap-4 md:grid-cols-3">
+        <label class="flex flex-col gap-1">
+          <span>Реальная доходность портфеля, % в год</span>
+          <input id="realReturn" type="number" step="0.1" class="rounded-xl border p-2" />
+          <span class="text-sm muted">После инфляции, средняя за период</span>
+        </label>
+        <label class="flex flex-col gap-1">
+          <span>Дивиденд/изъём на пенсии, % в год</span>
+          <input id="swr" type="number" step="0.1" class="rounded-xl border p-2" />
+          <span class="text-sm muted">Консервативно 3.5–4.5%</span>
+        </label>
+        <label class="flex flex-col gap-1">
+          <span>Волатильность (Монте-Карло), %/год</span>
+          <input id="vol" type="number" step="0.1" class="rounded-xl border p-2" />
+          <span class="text-sm muted">0 = без Монте-Карло</span>
+        </label>
+        <label class="flex flex-col gap-1">
+          <span>Число прогонов Монте-Карло</span>
+          <input id="mcRuns" type="number" step="10" class="rounded-xl border p-2" />
+        </label>
+      </div>
+    </section>
+
+    <!-- Недвижимость -->
+    <section class="card">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-semibold">4) Недвижимость (по желанию)</h2>
+        <label class="flex items-center gap-2">
+          <input id="reEnabled" type="checkbox" class="w-4 h-4" />
+          <span>Включить покупки квартир</span>
+        </label>
+      </div>
+
+      <div id="reBlock" class="grid gap-4 md:grid-cols-3">
+        <label class="flex flex-col gap-1">
+          <span>Цена квартиры (₽, реальная)</span>
+          <input id="rePrice" type="number" step="100000" class="rounded-xl border p-2" />
+        </label>
+        <label class="flex flex-col gap-1">
+          <span>Чистая доходность аренды, %/год</span>
+          <input id="reNetYield" type="number" step="0.1" class="rounded-xl border p-2" />
+        </label>
+        <label class="flex flex-col gap-1">
+          <span>Реальный рост цены жилья, %/год</span>
+          <input id="rePriceGrowth" type="number" step="0.1" class="rounded-xl border p-2" />
+        </label>
+
+        <label class="flex flex-col gap-1">
+          <span>LTV (ипотека), %</span>
+          <input id="reLTV" type="number" step="1" class="rounded-xl border p-2" />
+        </label>
+        <label class="flex flex-col gap-1">
+          <span>Ставка ипотеки (реально), %/год</span>
+          <input id="reRate" type="number" step="0.1" class="rounded-xl border p-2" />
+        </label>
+        <label class="flex flex-col gap-1">
+          <span>Срок ипотеки (лет)</span>
+          <input id="reTermYears" type="number" step="1" class="rounded-xl border p-2" />
+        </label>
+
+        <label class="flex flex-col gap-1">
+          <span>Мин. интервал между покупками (мес.)</span>
+          <input id="reMinGapMonths" type="number" step="1" class="rounded-xl border p-2" />
+        </label>
+        <label class="flex flex-col gap-1">
+          <span>Макс. число квартир</span>
+          <input id="reMaxUnits" type="number" step="1" class="rounded-xl border p-2" />
+        </label>
+        <label class="flex flex-col gap-1">
+          <span>Резерв платежей перед покупкой (мес.)</span>
+          <input id="reReserveMonths" type="number" step="1" class="rounded-xl border p-2" />
+          <span class="text-sm muted">Проверка платёжеспособности (не блокируется)</span>
+        </label>
+      </div>
+    </section>
+
+    <!-- Кнопки -->
+    <section class="card">
+      <div class="flex flex-wrap items-center gap-3">
+        <button id="btnRun" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700">Запустить расчёт</button>
+        <button id="btnCSV" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200">Экспорт CSV</button>
+        <span class="muted text-sm">Все расчёты в «реальных» рублях (покупательная способность сохраняется).</span>
+      </div>
+    </section>
+
+    <!-- Результаты -->
+    <section class="space-y-6">
+      <div class="grid gap-4 md:grid-cols-4">
+        <div class="card">
+          <div class="muted text-sm">Капитал к пенсии</div>
+          <div id="outCap" class="text-2xl font-bold">—</div>
+          <div id="outCapEquity" class="muted text-sm">в т.ч. недвижимость: —</div>
+        </div>
+        <div class="card">
+          <div class="muted text-sm">«Пенсия»/мес (див.)</div>
+          <div id="outPensionDiv" class="text-2xl font-bold">—</div>
+          <div class="muted text-sm">по норме изъёма</div>
+        </div>
+        <div class="card">
+          <div class="muted text-sm">Аренда/мес (чистыми)</div>
+          <div id="outRent" class="text-2xl font-bold">—</div>
+          <div id="outUnits" class="muted text-sm">квартир: —</div>
+        </div>
+        <div class="card">
+          <div class="muted text-sm">Итог/мес на пенсии</div>
+          <div id="outTotal" class="text-2xl font-bold">—</div>
+          <div id="outMC" class="muted text-sm">Монте-Карло: —</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="text-lg font-semibold mb-3">Динамика капитала</h3>
+        <canvas id="chartWealth" height="120"></canvas>
+      </div>
+
+      <div class="card grid md:grid-cols-2 gap-6">
+        <div>
+          <h3 class="text-lg font-semibold mb-3">Доход на пенсии (структура)</h3>
+          <canvas id="chartIncome" height="140"></canvas>
+        </div>
+        <div>
+          <h3 class="text-lg font-semibold mb-3">Квартиры и ипотека</h3>
+          <canvas id="chartUnits" height="140"></canvas>
+        </div>
+      </div>
+
+      <div class="card">
+        <details>
+          <summary class="cursor-pointer font-semibold">Таблица по месяцам (свернуть/развернуть)</summary>
+          <div class="overflow-x-auto mt-4">
+            <table id="tbl" class="min-w-full text-sm">
+              <thead class="sticky top-0 bg-slate-100">
+                <tr>
+                  <th class="text-left p-2">Месяц</th>
+                  <th class="text-right p-2">Взнос</th>
+                  <th class="text-right p-2">Портфель</th>
+                  <th class="text-right p-2">Капитал (всего)</th>
+                  <th class="text-right p-2">Ипотека долг</th>
+                  <th class="text-right p-2">Квартиры (шт.)</th>
+                </tr>
+              </thead>
+              <tbody id="tblBody"></tbody>
+            </table>
+          </div>
+        </details>
+      </div>
+    </section>
+  </main>
+
+  <footer class="max-w-7xl mx-auto px-4 sm:px-6 py-8 text-sm muted">
+    ⚠️ Это финансовая модель «на салфетке». Все цифры даны в реальных рублях (с поправкой на инфляцию). Налоги и комиссии можно заложить в параметры доходности/доходности аренды.
+  </footer>
+
+  <script>
+    // ====== Утилиты форматирования ======
+    const fmt = (x) => x === null || x === undefined ? '—' :
+      new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(Math.round(x));
+    const fmtMoney = (x) => x === null || x === undefined ? '—' : fmt(x) + ' ₽';
+    const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+    const monthStr = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+
+    // ====== Параметры по умолчанию под пользователя ======
+    const defaults = {
+      dob: '1992-05-27',
+      startDate: '2029-01',
+      retAge: 65,
+      income: 130_000,
+      contribMode: 'percent',     // 'percent' | 'fixed'
+      contribValue: 32,           // %
+      contribGrowth: 2,           // %/год, реальные
+      incomeGrowth: 0,            // %/год, реальные
+      initialCapital: 0,
+      realReturn: 5,              // %/год
+      swr: 4,                     // %/год изъятия
+      vol: 0,                     // годовая волатильность (реальная) для MC
+      mcRuns: 0,                  // число прогонов MC
+      reEnabled: true,
+      rePrice: 25_000_000,
+      reNetYield: 3.0,            // %/год (чистыми)
+      rePriceGrowth: 0.0,         // %/год в реальном выражении
+      reLTV: 80,                  // %
+      reRate: 3.0,                // %/год (реальная ставка)
+      reTermYears: 20,
+      reMinGapMonths: 24,
+      reMaxUnits: 10,
+      reReserveMonths: 12
+    };
+
+    // ====== Привязка элементов ======
+    const $ = (id) => document.getElementById(id);
+    const el = {
+      dob: $('dob'), startDate: $('startDate'), retAge: $('retAge'),
+      income: $('income'), contribMode: $('contribMode'), contribValue: $('contribValue'),
+      contribGrowth: $('contribGrowth'), incomeGrowth: $('incomeGrowth'),
+      initialCapital: $('initialCapital'),
+      realReturn: $('realReturn'), swr: $('swr'), vol: $('vol'), mcRuns: $('mcRuns'),
+      reEnabled: $('reEnabled'),
+      rePrice: $('rePrice'), reNetYield: $('reNetYield'), rePriceGrowth: $('rePriceGrowth'),
+      reLTV: $('reLTV'), reRate: $('reRate'), reTermYears: $('reTermYears'),
+      reMinGapMonths: $('reMinGapMonths'), reMaxUnits: $('reMaxUnits'), reReserveMonths: $('reReserveMonths'),
+      ageOut: $('ageOut'), retDateOut: $('retDateOut'),
+      outCap: $('outCap'), outCapEquity: $('outCapEquity'),
+      outPensionDiv: $('outPensionDiv'), outRent: $('outRent'), outUnits: $('outUnits'),
+      outTotal: $('outTotal'), outMC: $('outMC'),
+      contribLabel: $('contribLabel'),
+      btnRun: $('btnRun'), btnCSV: $('btnCSV'),
+      btnReset: $('btnReset'), btnSave: $('btnSave'), btnLoad: $('btnLoad'), btnShare: $('btnShare'),
+      reBlock: $('reBlock'),
+      tblBody: $('tblBody'),
+      chartWealth: $('chartWealth'), chartIncome: $('chartIncome'), chartUnits: $('chartUnits')
+    };
+
+    const setUI = (p) => {
+      el.dob.value = p.dob;
+      el.startDate.value = p.startDate;
+      el.retAge.value = p.retAge;
+      el.income.value = p.income;
+      el.contribMode.value = p.contribMode;
+      el.contribValue.value = p.contribValue;
+      el.contribGrowth.value = p.contribGrowth;
+      el.incomeGrowth.value = p.incomeGrowth;
+      el.initialCapital.value = p.initialCapital;
+      el.realReturn.value = p.realReturn;
+      el.swr.value = p.swr;
+      el.vol.value = p.vol;
+      el.mcRuns.value = p.mcRuns;
+      el.reEnabled.checked = p.reEnabled;
+      el.rePrice.value = p.rePrice;
+      el.reNetYield.value = p.reNetYield;
+      el.rePriceGrowth.value = p.rePriceGrowth;
+      el.reLTV.value = p.reLTV;
+      el.reRate.value = p.reRate;
+      el.reTermYears.value = p.reTermYears;
+      el.reMinGapMonths.value = p.reMinGapMonths;
+      el.reMaxUnits.value = p.reMaxUnits;
+      el.reReserveMonths.value = p.reReserveMonths;
+      toggleRE();
+      updateLabels();
+      updateAgeOutputs();
+    };
+
+    const readUI = () => ({
+      dob: el.dob.value,
+      startDate: el.startDate.value,
+      retAge: +el.retAge.value,
+      income: +el.income.value,
+      contribMode: el.contribMode.value,
+      contribValue: +el.contribValue.value,
+      contribGrowth: +el.contribGrowth.value,
+      incomeGrowth: +el.incomeGrowth.value,
+      initialCapital: +el.initialCapital.value,
+      realReturn: +el.realReturn.value,
+      swr: +el.swr.value,
+      vol: +el.vol.value,
+      mcRuns: +el.mcRuns.value,
+      reEnabled: el.reEnabled.checked,
+      rePrice: +el.rePrice.value,
+      reNetYield: +el.reNetYield.value,
+      rePriceGrowth: +el.rePriceGrowth.value,
+      reLTV: +el.reLTV.value,
+      reRate: +el.reRate.value,
+      reTermYears: +el.reTermYears.value,
+      reMinGapMonths: +el.reMinGapMonths.value,
+      reMaxUnits: +el.reMaxUnits.value,
+      reReserveMonths: +el.reReserveMonths.value,
+    });
+
+    function updateLabels(){
+      if (el.contribMode.value === 'percent') {
+        el.contribLabel.textContent = 'Доля взноса от дохода (%)';
+      } else {
+        el.contribLabel.textContent = 'Фиксированный взнос (₽/мес)';
+      }
+    }
+
+    function toggleRE(){
+      el.reBlock.style.display = el.reEnabled.checked ? 'grid' : 'none';
+    }
+
+    function updateAgeOutputs(){
+      const dob = new Date(el.dob.value);
+      if (!isFinite(dob.getTime())) return;
+      const today = new Date();
+      let age = today.getFullYear() - dob.getFullYear();
+      const m = today.getMonth() - dob.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
+      el.ageOut.textContent = `Возраст сейчас: ${age} лет`;
+      // Пенсия
+      const retDate = new Date(dob);
+      retDate.setFullYear(dob.getFullYear() + (+el.retAge.value || 65));
+      el.retDateOut.textContent = `Ожидаемая дата пенсии: ${retDate.toLocaleDateString('ru-RU')}`;
+    }
+
+    el.contribMode.addEventListener('change', updateLabels);
+    el.reEnabled.addEventListener('change', toggleRE);
+    [el.dob, el.retAge].forEach(x => x.addEventListener('input', updateAgeOutputs));
+
+    // ====== Математика ======
+    const pow1p = (r, n) => Math.pow(1 + r, n);
+    const monthlyRate = (annualPct) => pow1p(annualPct/100, 1/12) - 1;
+    const pmt = (rate, nper, pv) => rate === 0 ? pv / nper : (pv * rate) / (1 - Math.pow(1 + rate, -nper));
+
+    function simulate(params){
+      const p = { ...params };
+      // Даты
+      const start = new Date(p.startDate + '-01');
+      const dob = new Date(p.dob);
+      const retire = new Date(dob); retire.setFullYear(dob.getFullYear() + p.retAge);
+      // Границы
+      if (start > retire) throw new Error('Дата старта инвестиций позже даты пенсии');
+      const months = (retire.getFullYear() - start.getFullYear())*12 + (retire.getMonth() - start.getMonth()) + 1;
+
+      // Ставки (реальные)
+      const r_m = monthlyRate(p.realReturn);        // рост портфеля
+      const cg_m = monthlyRate(p.contribGrowth);    // рост взноса
+      const ig_m = monthlyRate(p.incomeGrowth);     // рост дохода
+      const re_price_m = monthlyRate(p.rePriceGrowth);
+      const mort_m = monthlyRate(p.reRate);
+
+      // Состояние
+      let portfolio = p.initialCapital || 0;  // ликвидный портфель
+      let income = p.income;
+      let contrib = p.contribMode === 'percent' ? income * p.contribValue/100 : p.contribValue;
+
+      // Недвижимость
+      const units = []; // {price0, price, principal, payment, month0}
+      let lastBuyMonth = -1;
+
+      // Срезы для вывода
+      const labels = [];
+      const serPortfolio = [];
+      const serTotalWealth = [];
+      const serMort = [];
+      const serUnits = [];
+      const rows = [];
+
+      for (let m = 0; m < months; m++){
+        const cur = new Date(start); cur.setMonth(start.getMonth() + m);
+        labels.push(monthStr(cur));
+
+        // 1) Взнос
+        if (m > 0) {
+          // Рост дохода/взноса помесячно
+          income *= (1 + ig_m);
+          if (p.contribMode === 'percent') {
+            contrib = income * p.contribValue/100;
+          }
+          contrib *= (1 + cg_m);
+        }
+        portfolio += contrib;
+
+        // 2) Обслуживание уже купленных квартир: рентный поток и ипотека
+        let totalMortBal = 0;
+        let rentNetThisMonth = 0;
+        units.forEach(u => {
+          // Рост цены (реальный, опционально)
+          u.price *= (1 + re_price_m);
+          // Рента (чистыми)
+          const rent = (u.price * (p.reNetYield/100)) / 12;
+          // Платёж по ипотеке (фикс. аннуитет)
+          const interest = u.principal * mort_m;
+          const principalPay = Math.min(u.payment - interest, u.principal);
+          u.principal -= principalPay;
+
+          rentNetThisMonth += (rent - (u.payment || 0));
+          totalMortBal += u.principal;
+        });
+        portfolio += rentNetThisMonth; // может быть отрицательным
+
+        // 3) Инвест. доход на ликвидный портфель
+        portfolio *= (1 + r_m);
+
+        // 4) Покупка новой квартиры (если включено)
+        if (p.reEnabled) {
+          const canBuy =
+            units.length < p.reMaxUnits &&
+            (lastBuyMonth < 0 || (m - lastBuyMonth) >= p.reMinGapMonths);
+
+          if (canBuy) {
+            const price = p.rePrice * pow1p(re_price_m, m); // текущая реальная цена по траектории
+            const loan = price * (p.reLTV/100);
+            const down = price - loan;
+            const nper = p.reTermYears * 12;
+            const payment = mort_m === 0 ? loan / nper : pmt(mort_m, nper, loan);
+
+            // Проверка резерва платежей (только как требование)
+            const reserveNeed = p.reReserveMonths * payment;
+
+            if (portfolio >= (down + reserveNeed)) {
+              // Совершаем покупку (резерв не блокируем, это условие)
+              portfolio -= down;
+              units.push({
+                price0: price,
+                price: price,
+                principal: loan,
+                payment,
+                month0: m,
+              });
+              lastBuyMonth = m;
+            }
+          }
+        }
+
+        // 5) Метрики
+        const equity = units.reduce((s,u)=> s + Math.max(0, u.price - u.principal), 0);
+        const totalWealth = portfolio + equity;
+        serPortfolio.push(portfolio);
+        serTotalWealth.push(totalWealth);
+        serMort.push(units.reduce((s,u)=> s + u.principal, 0));
+        serUnits.push(units.length);
+        rows.push({
+          month: labels[labels.length-1],
+          contrib: contrib,
+          portfolio,
+          totalWealth,
+          mort: serMort[serMort.length-1],
+          units: units.length
+        });
+      }
+
+      // На пенсии: доходы
+      const equity = units.reduce((s,u)=> s + Math.max(0, u.price - u.principal), 0);
+      const totalWealth = portfolio + equity;
+      const pensionDiv = (p.swr/100) * portfolio / 12;
+
+      // Рента на пенсии = чистая аренда минус платежи в месяц пенсии
+      let rentAtRet = 0, mortBalAtRet = 0;
+      units.forEach(u => {
+        const rent = (u.price * (p.reNetYield/100)) / 12;
+        const interest = u.principal * mort_m;
+        const principalPay = Math.min(u.payment - interest, u.principal);
+        const payment = mort_m === 0 ? 0 : (interest + principalPay);
+        mortBalAtRet += u.principal;
+        rentAtRet += (rent - payment);
+      });
+
+      // Монте-Карло (по желанию): считаем распределение капитала без недвижимости (для простоты)
+      let mc = null;
+      if ((p.mcRuns|0) > 0 && p.vol > 0){
+        mc = monteCarlo(p, months);
+      }
+
+      return {
+        labels, serPortfolio, serTotalWealth, serMort, serUnits, rows,
+        portfolio, equity, totalWealth, pensionDiv, rentAtRet, unitsCount: serUnits.at(-1) || 0, mc
+      };
+    }
+
+    // Простая Монте-Карло модель на ликвидный портфель (без недвижимости, для скорости)
+    function monteCarlo(p, months){
+      const runs = clamp(p.mcRuns|0, 10, 5000);
+      const muY = p.realReturn/100;
+      const sigmaY = p.vol/100;
+      const muM = Math.log(1+muY)/12; // приводим к лог-нормальному
+      const sigmaM = sigmaY/Math.sqrt(12);
+      const ig_m = monthlyRate(p.incomeGrowth);
+      const cg_m = monthlyRate(p.contribGrowth);
+
+      const results = [];
+      for (let r = 0; r < runs; r++){
+        let port = p.initialCapital || 0;
+        let income = p.income;
+        let contrib = p.contribMode === 'percent' ? income * p.contribValue/100 : p.contribValue;
+
+        for (let m = 0; m < months; m++){
+          if (m>0){
+            income *= (1 + ig_m);
+            if (p.contribMode === 'percent') contrib = income * p.contribValue/100;
+            contrib *= (1 + cg_m);
+          }
+          port += contrib;
+          // Случайная доходность
+          const z = boxMuller();
+          const rMonth = Math.exp(muM + sigmaM * z) - 1; // логнорм
+          port *= (1 + rMonth);
+        }
+        results.push(port);
+      }
+      results.sort((a,b)=>a-b);
+      const q = (qq)=> results[Math.max(0, Math.min(results.length-1, Math.floor(qq*(results.length-1))))];
+      const p50 = q(0.5), p05 = q(0.05), p95 = q(0.95);
+      return { p05, p50, p95, swrMonthly: (swr)=>({ 
+        p05: (swr/100)*p05/12, p50: (swr/100)*p50/12, p95: (swr/100)*p95/12 
+      })};
+    }
+    function boxMuller(){
+      let u = 0, v = 0;
+      while(u===0) u = Math.random();
+      while(v===0) v = Math.random();
+      return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0*Math.PI*v);
+    }
+
+    // ====== Графики ======
+    let chart1, chart2, chart3;
+    function drawCharts(data){
+      // Wealth chart
+      chart1 && chart1.destroy();
+      chart1 = new Chart(el.chartWealth.getContext('2d'), {
+        type: 'line',
+        data: {
+          labels: data.labels,
+          datasets: [
+            { label: 'Ликвидный портфель', data: data.serPortfolio, borderWidth: 2, fill: false },
+            { label: 'Капитал (всего)', data: data.serTotalWealth, borderWidth: 2, fill: false },
+            { label: 'Долг по ипотеке', data: data.serMort, borderWidth: 2, fill: false },
+          ]
+        },
+        options: {
+          responsive: true,
+          interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { position: 'bottom' } },
+          scales: {
+            y: { ticks: { callback: v => fmt(v) } }
+          }
+        }
+      });
+
+      // Income composition
+      chart2 && chart2.destroy();
+      chart2 = new Chart(el.chartIncome.getContext('2d'), {
+        type: 'doughnut',
+        data: {
+          labels: ['Дивиденды/изъём', 'Аренда (чистыми)'],
+          datasets: [{ data: [data.pensionDiv, data.rentAtRet] }]
+        },
+        options: { plugins: { legend: { position: 'bottom' } } }
+      });
+
+      // Units and mortgage
+      chart3 && chart3.destroy();
+      chart3 = new Chart(el.chartUnits.getContext('2d'), {
+        type: 'line',
+        data: {
+          labels: data.labels,
+          datasets: [
+            { label: 'Квартиры (шт.)', data: data.serUnits, borderWidth: 2, yAxisID: 'y1' },
+            { label: 'Долг по ипотеке', data: data.serMort, borderWidth: 2, yAxisID: 'y' },
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { position: 'bottom' } },
+          interaction: { mode: 'index', intersect: false },
+          scales: {
+            y: { position: 'left', ticks: { callback: v => fmt(v) } },
+            y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { stepSize: 1 } }
+          }
+        }
+      });
+    }
+
+    // ====== Таблица/CSV ======
+    function renderTable(rows){
+      const frag = document.createDocumentFragment();
+      el.tblBody.innerHTML = '';
+      rows.forEach(r=>{
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="p-2">${r.month}</td>
+          <td class="p-2 text-right">${fmt(r.contrib)}</td>
+          <td class="p-2 text-right">${fmt(r.portfolio)}</td>
+          <td class="p-2 text-right">${fmt(r.totalWealth)}</td>
+          <td class="p-2 text-right">${fmt(r.mort)}</td>
+          <td class="p-2 text-right">${r.units}</td>
+        `;
+        frag.appendChild(tr);
+      });
+      el.tblBody.appendChild(frag);
+    }
+    function exportCSV(rows){
+      const head = ['month','contrib','portfolio','total_wealth','mortgage_debt','units'];
+      const lines = [head.join(',')].concat(rows.map(r=>[
+        r.month, Math.round(r.contrib), Math.round(r.portfolio), Math.round(r.totalWealth), Math.round(r.mort), r.units
+      ].join(',')));
+      const blob = new Blob([lines.join('\n')], {type:'text/csv;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'simulation.csv'; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // ====== Пресеты/Шарабл ======
+    const STORAGE_KEY = 'max_pension_calc_preset';
+    function getParamsFromUI(){ return readUI(); }
+    function setParamsToUI(p){ setUI(p); }
+    function savePreset(){
+      const p = getParamsFromUI();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+    }
+    function loadPreset(){
+      const s = localStorage.getItem(STORAGE_KEY);
+      if (!s) return alert('Сохранённый пресет не найден');
+      try { setParamsToUI(JSON.parse(s)); } catch(e){ alert('Ошибка чтения пресета'); }
+    }
+    function shareLink(){
+      const p = getParamsFromUI();
+      const encoded = encodeURIComponent(btoa(JSON.stringify(p)));
+      const url = location.origin + location.pathname + '#p=' + encoded;
+      navigator.clipboard.writeText(url).then(()=> alert('Ссылка скопирована в буфер обмена'));
+    }
+    function tryLoadFromHash(){
+      const h = new URLSearchParams(location.hash.slice(1));
+      const enc = h.get('p');
+      if (!enc) return;
+      try { setParamsToUI(JSON.parse(atob(decodeURIComponent(enc)))); }
+      catch(e){ console.warn('Bad hash'); }
+    }
+
+    // ====== Основной запуск ======
+    function run(){
+      try{
+        const p = readUI();
+        const res = simulate(p);
+
+        el.outCap.textContent = fmtMoney(res.totalWealth);
+        el.outCapEquity.textContent = 'в т.ч. недвижимость: ' + fmtMoney(res.equity);
+        el.outPensionDiv.textContent = fmtMoney(res.pensionDiv);
+        el.outRent.textContent = fmtMoney(res.rentAtRet);
+        el.outUnits.textContent = `квартир: ${res.unitsCount}`;
+        el.outTotal.textContent = fmtMoney(res.pensionDiv + res.rentAtRet);
+
+        if (res.mc){
+          const swr = p.swr;
+          const swrM = res.mc.swrMonthly(swr);
+          el.outMC.textContent = `MC (мед./5%/95%): ${fmtMoney(swrM.p50)} / ${fmtMoney(swrM.p05)} / ${fmtMoney(swrM.p95)}`;
+        } else {
+          el.outMC.textContent = 'Монте-Карло: выкл.';
+        }
+
+        drawCharts(res);
+        renderTable(res.rows);
+      } catch (e){
+        alert('Ошибка расчёта: ' + e.message);
+        console.error(e);
+      }
+    }
+
+    // ====== Привязка кнопок ======
+    el.btnRun.addEventListener('click', run);
+    el.btnCSV.addEventListener('click', ()=> exportCSV(simulate(readUI()).rows));
+    el.btnReset.addEventListener('click', ()=> setUI(defaults));
+    el.btnSave.addEventListener('click', savePreset);
+    el.btnLoad.addEventListener('click', loadPreset);
+    el.btnShare.addEventListener('click', shareLink);
+
+    // Инициализация
+    setUI(defaults);
+    tryLoadFromHash();
+    run();
+  </script>
+</body>
+</html>
