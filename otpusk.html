@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>Отпуска 2026 — Просмотр/Редактирование XLSX</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- SheetJS -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js"></script>
+  <!-- XLSX-Calc (пересчёт формул на клиенте) -->
+  <script src="https://unpkg.com/xlsx-calc@0.5.6/dist/xlsx-calc.min.js"></script>
+  <!-- FileSaver -->
+  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+  <style>
+    .scrollbar-thin::-webkit-scrollbar{height:8px;width:8px}
+    .scrollbar-thin::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:6px}
+    .scrollbar-thin::-webkit-scrollbar-track{background:#f1f5f9}
+    .cell-editing{outline:2px solid #3b82f6;background:#eff6ff}
+    .cell-modified{background:#fef3c7}
+    .th-group{top:0}
+    .th-header{top:40px}
+    .spinner:after{content:"";width:18px;height:18px;border:3px solid #cbd5e1;border-top-color:#6366f1;border-radius:50%;display:inline-block;animation:spin 0.8s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+<header class="bg-gradient-to-r from-indigo-600 to-violet-600 text-white">
+  <div class="max-w-7xl mx-auto px-4 py-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold">Отпуска 2026 — редактор Excel</h1>
+      <p class="text-white/90">Загрузите основной файл. При наличии ссылок на внешний файл — добавьте его, пересчёт формул выполнится на странице.</p>
+    </div>
+    <div class="flex items-center gap-3">
+      <label class="inline-flex items-center px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 cursor-pointer backdrop-blur">
+        <input id="file-main" type="file" accept=".xlsx,.xls" class="hidden" />
+        <span class="font-medium">Загрузить основной XLSX</span>
+      </label>
+      <label class="inline-flex items-center px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 cursor-pointer backdrop-blur" title="Для формул вида [1]Sheet1!A1">
+        <input id="file-ext" type="file" accept=".xlsx,.xls" class="hidden" />
+        <span class="font-medium">Добавить внешний XLSX</span>
+      </label>
+    </div>
+  </div>
+</header>
+
+<main class="max-w-7xl mx-auto px-4 py-6">
+  <!-- Бейдж статуса -->
+  <div id="status" class="hidden mb-4 p-3 rounded-xl bg-slate-100 border border-slate-200 text-slate-700"></div>
+
+  <!-- Предупреждение о внешних ссылках -->
+  <div id="ext-notice" class="hidden mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800">
+    Обнаружены внешние ссылки вида <code class="px-1 bg-amber-100 rounded">[1]Sheet1!…</code>. Загрузите внешний файл (кнопка сверху) и сопоставьте лист для замены ссылок и пересчёта.
+    <div class="mt-2 flex items-center gap-2">
+      <label class="text-sm">Лист внешнего файла:</label>
+      <select id="ext-sheet" class="px-2 py-1 border border-amber-300 rounded-lg bg-white"></select>
+      <button id="ext-bind" class="px-3 py-1 rounded-lg bg-amber-600 text-white hover:bg-amber-700">Привязать</button>
+    </div>
+  </div>
+
+  <!-- Панель управления -->
+  <section id="controls" class="hidden">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="flex items-center gap-3">
+        <label class="text-sm text-slate-600">Лист:</label>
+        <select id="sheet-select" class="px-3 py-2 rounded-xl border border-slate-300 bg-white shadow-sm"></select>
+
+        <label class="text-sm text-slate-600 ml-4">Строк/страница:</label>
+        <select id="page-size" class="px-3 py-2 rounded-xl border border-slate-300 bg-white shadow-sm">
+          <option>10</option><option>25</option><option selected>50</option><option>100</option>
+        </select>
+      </div>
+      <div class="flex items-center gap-3">
+        <input id="search" type="text" placeholder="Поиск по видимым колонкам…" class="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white shadow-sm" />
+        <div class="relative">
+          <button id="col-visibility-btn" class="px-3 py-2 rounded-xl border border-slate-300 bg-white shadow-sm">Колонки</button>
+          <div id="col-visibility-menu" class="absolute right-0 mt-2 w-72 max-h-80 overflow-auto hidden bg-white border border-slate-200 rounded-xl shadow-lg p-2"></div>
+        </div>
+        <button id="reset" class="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 border border-slate-300">Сброс</button>
+      </div>
+    </div>
+
+    <div class="mt-4 flex flex-wrap items-center gap-3">
+      <button id="toggle-edit" class="px-3 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700">Редактирование: выкл.</button>
+      <label class="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-100 border border-slate-300">
+        <input id="auto-recalc" type="checkbox" class="scale-110" checked />
+        <span class="text-sm text-slate-700">Автопересчёт формул</span>
+      </label>
+      <button id="btn-recalc" class="px-3 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700">Пересчитать</button>
+      <span id="calc-indicator" class="text-sm text-slate-600 hidden"><span class="spinner mr-2"></span>Пересчёт…</span>
+
+      <span id="changes" class="text-sm text-amber-700 hidden">Есть несохранённые изменения</span>
+      <div class="ml-auto flex items-center gap-3">
+        <button id="export-xlsx" class="px-3 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700">Экспорт XLSX</button>
+        <button id="export-csv"  class="px-3 py-2 rounded-xl bg-white border border-slate-300 hover:bg-slate-50">CSV</button>
+        <button id="export-json" class="px-3 py-2 rounded-xl bg-white border border-slate-300 hover:bg-slate-50">JSON</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Таблица + инспектор -->
+  <section class="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
+    <div class="lg:col-span-9 bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden hidden" id="table-wrap">
+      <div class="overflow-auto scrollbar-thin" style="max-height:65vh;">
+        <table id="grid" class="min-w-full text-sm">
+          <thead>
+            <tr id="thead-group" class="bg-slate-50 sticky th-group z-20"></tr>
+            <tr id="thead" class="bg-slate-50 sticky th-header z-20"></tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+      <div class="p-3 flex items-center gap-3 border-t border-slate-200">
+        <button id="prev" class="px-3 py-2 rounded-xl bg-white border border-slate-300 hover:bg-slate-50">Назад</button>
+        <span id="page-info" class="text-sm text-slate-600"></span>
+        <button id="next" class="px-3 py-2 rounded-xl bg-white border border-slate-300 hover:bg-slate-50">Вперёд</button>
+      </div>
+    </div>
+
+    <aside class="lg:col-span-3 bg-white border border-slate-200 rounded-2xl shadow-sm p-4 h-fit hidden" id="inspector">
+      <h3 class="font-semibold mb-2">Инспектор ячейки</h3>
+      <div class="text-sm text-slate-600">Лист: <span id="insp-sheet" class="font-medium text-slate-800">—</span></div>
+      <div class="text-sm text-slate-600">Адрес: <span id="insp-addr" class="font-medium text-slate-800">—</span></div>
+      <div class="text-sm text-slate-600 mt-2">Заголовок: <div id="insp-col" class="font-medium text-slate-800 break-words">—</div></div>
+      <div class="text-sm text-slate-600 mt-3">Формула:</div>
+      <pre id="insp-formula" class="text-xs bg-slate-50 p-2 rounded-md border border-slate-200 overflow-auto max-h-36">—</pre>
+      <div class="text-sm text-slate-600 mt-2">Значение:</div>
+      <pre id="insp-value" class="text-xs bg-slate-50 p-2 rounded-md border border-slate-200 overflow-auto max-h-36">—</pre>
+      <div class="text-sm text-slate-600 mt-3">Тип ячейки: <span id="insp-type" class="font-medium text-slate-800">—</span></div>
+    </aside>
+  </section>
+
+  <!-- Сообщения -->
+  <div id="msg" class="mt-4 hidden"></div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const el = (tag, props={}, children=[]) => {
+  const n = document.createElement(tag);
+  Object.entries(props).forEach(([k,v])=>{
+    if(k==='class') n.className=v;
+    else if(k.startsWith('on') && typeof v==='function') n.addEventListener(k.slice(2), v);
+    else if(k==='dataset') Object.assign(n.dataset, v);
+    else n.setAttribute(k, v);
+  });
+  (Array.isArray(children)?children:[children]).forEach(c=>{
+    if(c==null) return;
+    n.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  });
+  return n;
+};
+
+const state = {
+  wb: null,              // SheetJS workbook
+  sheetNames: [],
+  active: null,
+  headerRow: {},         // per-sheet: header row index (1-based)
+  groupRow: {},          // per-sheet: group header row (optional)
+  columns: [],           // display columns (objects)
+  hiddenCols: new Set(),
+  page: 1,
+  pageSize: 50,
+  dataRange: null,       // {s:{r,c}, e:{r,c}}
+  editMode: false,
+  autoRecalc: true,
+  modified: new Map(),   // key: `${sheet}!R${r}C${c}` -> value
+  hasExternalRefs: false,
+  extSheetName: null,    // selected external sheet name
+  extWb: null            // external workbook to import
+};
+
+// ---- UI helpers ----
+function showMsg(text, type='info', timeout=4000){
+  const box = $('#msg');
+  box.className = `mt-4 p-3 rounded-xl ${type==='error'?'bg-rose-50 text-rose-700 border border-rose-200':'bg-emerald-50 text-emerald-700 border border-emerald-200'}`;
+  box.textContent = text; box.hidden = false;
+  if(timeout) setTimeout(()=> box.hidden = true, timeout);
+}
+function setStatus(text){ const s = $('#status'); s.textContent = text; s.hidden = !text; }
+function setCalcBusy(busy){ $('#calc-indicator').classList.toggle('hidden', !busy); }
+
+// ---- Workbook load ----
+async function readFileAsArrayBuffer(file){ return await file.arrayBuffer(); }
+
+function decodeRange(ws){
+  const ref = ws['!ref']; if(!ref) return null;
+  return XLSX.utils.decode_range(ref);
+}
+
+// Heuristics for header row:
+// - If row 1 mostly group labels and row 2 has textual headers: use groupRow=1, headerRow=2
+// - Else headerRow=1
+function detectHeaders(ws){
+  const r = decodeRange(ws); if(!r) return { headerRow:1, groupRow:null };
+  const row1 = [];
+  for(let c=r.s.c; c<=r.e.c; c++) row1.push((ws[XLSX.utils.encode_cell({r:r.s.r, c})]||{}).v ?? null);
+  const row2 = [];
+  if(r.s.r+1<=r.e.r) for(let c=r.s.c; c<=r.e.c; c++) row2.push((ws[XLSX.utils.encode_cell({r:r.s.r+1, c})]||{}).v ?? null);
+  const textRatio = arr => {
+    const nonempty = arr.filter(v=>v!==null && v!=='');
+    if(nonempty.length===0) return 0;
+    return nonempty.filter(v=>typeof v==='string').length / nonempty.length;
+  };
+  // эвристика для вашего файла
+  if(textRatio(row2) >= 0.6 && textRatio(row1) >= 0.2){
+    return { headerRow: r.s.r+1, groupRow: r.s.r };
+  }
+  return { headerRow: r.s.r, groupRow: null };
+}
+
+function buildColumnModel(ws, headerRow){
+  const range = decodeRange(ws); if(!range) return [];
+  const cols = [];
+  for(let c=range.s.c; c<=range.e.c; c++){
+    const addr = XLSX.utils.encode_cell({r: headerRow-1, c});
+    const v = (ws[addr]||{}).v;
+    if(v===undefined || v===null || String(v).trim()==='') { cols.push({ key:`C${c}`, title:null, idx:c }); continue; }
+    cols.push({ key:String(v), title:String(v), idx:c });
+  }
+  return cols;
+}
+
+function hasExternalRefsInSheet(ws){
+  const r = decodeRange(ws); if(!r) return false;
+  for(let rr=r.s.r; rr<=r.e.r; rr++){
+    for(let c=r.s.c; c<=r.e.c; c++){
+      const cell = ws[XLSX.utils.encode_cell({r:rr,c})];
+      if(cell && cell.f && /\[[0-9]+\][^!]+!/.test(cell.f)) return true;
+    }
+  }
+  return false;
+}
+
+function collectExtSheetNames(extWb){
+  return extWb ? extWb.SheetNames.slice() : [];
+}
+
+// Copy a sheet from extWb to main wb under newName
+function importExternalSheet(newName){
+  if(!state.extWb) return false;
+  const srcName = $('#ext-sheet').value;
+  const sheetObj = state.extWb.Sheets[srcName];
+  if(!sheetObj) return false;
+  state.wb.Sheets[newName] = JSON.parse(JSON.stringify(sheetObj));
+  if(!state.wb.SheetNames.includes(newName)) state.wb.SheetNames.push(newName);
+  return true;
+}
+
+// Replace [n]SheetName! -> newName! in all formulas
+function rewriteExternalRefs(placeholderRegex, replaceTo){
+  state.wb.SheetNames.forEach(sn=>{
+    const ws = state.wb.Sheets[sn];
+    const r = decodeRange(ws); if(!r) return;
+    for(let rr=r.s.r; rr<=r.e.r; rr++){
+      for(let c=r.s.c; c<=r.e.c; c++){
+        const addr = XLSX.utils.encode_cell({r:rr,c});
+        const cell = ws[addr];
+        if(cell && cell.f && placeholderRegex.test(cell.f)){
+          cell.f = cell.f.replace(placeholderRegex, `${replaceTo}!`);
+        }
+      }
+    }
+  });
+}
+
+function prepareAfterLoad(){
+  state.sheetNames = state.wb.SheetNames;
+  // Выставим активный лист «Пожелания ДОК» если есть
+  state.active = state.sheetNames.includes('Пожелания ДОК') ? 'Пожелания ДОК' : state.sheetNames[0];
+
+  // Определим header/group ряды
+  state.headerRow = {}; state.groupRow = {};
+  state.sheetNames.forEach(sn=>{
+    const ws = state.wb.Sheets[sn];
+    const {headerRow, groupRow} = detectHeaders(ws);
+    state.headerRow[sn] = headerRow;
+    state.groupRow[sn] = groupRow;
+  });
+
+  // Проверим внешние ссылки
+  state.hasExternalRefs = state.sheetNames.some(sn => hasExternalRefsInSheet(state.wb.Sheets[sn]));
+  $('#ext-notice').classList.toggle('hidden', !state.hasExternalRefs);
+
+  // UI
+  populateSheetSelect();
+  $('#controls').classList.remove('hidden');
+  $('#table-wrap').classList.remove('hidden');
+  $('#inspector').classList.remove('hidden');
+  setStatus(`Загружено листов: ${state.sheetNames.length}. Активный: «${state.active}».${state.hasExternalRefs ? ' Обнаружены внешние ссылки.' : ''}`);
+  render();
+}
+
+function populateSheetSelect(){
+  const sel = $('#sheet-select'); sel.innerHTML = '';
+  state.sheetNames.forEach(n=>{
+    const opt = el('option', {value:n}, n);
+    if(n===state.active) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  sel.onchange = ()=>{ state.active = sel.value; state.page = 1; render(); };
+}
+
+// ---- Render ----
+function getVisibleColumns(sn){
+  const ws = state.wb.Sheets[sn];
+  const headerRow = state.headerRow[sn];
+  const cols = buildColumnModel(ws, headerRow);
+  // Отфильтруем полностью пустые
+  const range = decodeRange(ws); if(!range) return [];
+  const out = [];
+  for(const c of cols){
+    // проверим что в колонке есть хоть что-то ниже хедера
+    let nonempty = false;
+    for(let r=headerRow; r<=range.e.r; r++){
+      const cell = ws[XLSX.utils.encode_cell({r, c:c.idx})];
+      if(cell && (cell.v!==undefined && cell.v!==null && cell.v!=='')) { nonempty = true; break; }
+    }
+    if(c.title || nonempty) out.push(c);
+  }
+  return out;
+}
+
+// Является ли колонка редактируемой (по первой строке данных — если там формула, считаем вычисляемой)
+function isEditableColumn(sn, colIdx){
+  const ws = state.wb.Sheets[sn];
+  const headerRow = state.headerRow[sn];
+  const dataRow = headerRow + 1;
+  const cell = ws[XLSX.utils.encode_cell({r:dataRow-1, c:colIdx})];
+  const hasFormula = !!(cell && cell.f);
+  if(hasFormula) return false;
+  // Признак «Желаемая дата …» — дадим date-picker
+  const title = (ws[XLSX.utils.encode_cell({r:headerRow-1, c:colIdx})]||{}).v || '';
+  if(String(title).toLowerCase().includes('желаемая дата')) return true;
+  // Разрешим также узкие служебные поля (напр. «Номер критичного отпуска», «Master id»)
+  if(['master id','номер критичного отпуска','дата оформления в tinkoff'].includes(String(title).toLowerCase())) return true;
+  // Иначе запретим редактирование по умолчанию
+  return false;
+}
+
+function formatValue(v){
+  if(v==null) return '';
+  if(v instanceof Date) {
+    const y=v.getFullYear(), m=String(v.getMonth()+1).padStart(2,'0'), d=String(v.getDate()).padStart(2,'0');
+    return `${y}-${m}-${d}`;
+  }
+  return String(v);
+}
+
+function parseInputValue(title, raw){
+  if(String(title).toLowerCase().includes('желаемая дата')){
+    if(!raw) return null;
+    const d = new Date(raw);
+    if(!isNaN(d.getTime())) return d;
+  }
+  return raw;
+}
+
+function buildColVisibilityMenu(){
+  const menu = $('#col-visibility-menu'); menu.innerHTML='';
+  state.columns.forEach(c=>{
+    const name = c.title || `Колонка ${c.idx+1}`;
+    const item = el('label', {class:'flex items-center gap-2 px-2 py-1 rounded hover:bg-slate-50 cursor-pointer'}, [
+      el('input', {
+        type:'checkbox',
+        checked: !state.hiddenCols.has(c.idx),
+        onChange: (e)=>{ if(e.target.checked) state.hiddenCols.delete(c.idx); else state.hiddenCols.add(c.idx); renderBody(); }
+      }),
+      el('span', {class:'text-sm text-slate-700'}, name)
+    ]);
+    menu.appendChild(item);
+  });
+}
+
+function render(){
+  const sn = state.active;
+  const ws = state.wb.Sheets[sn];
+  const headerRow = state.headerRow[sn];
+  state.columns = getVisibleColumns(sn);
+  buildColVisibilityMenu();
+
+  // построим диапазон данных
+  const range = decodeRange(ws);
+  state.dataRange = range;
+  const thead = $('#thead'), tgroup = $('#thead-group');
+  thead.innerHTML = ''; tgroup.innerHTML = '';
+
+  // групповые заголовки
+  const groupRow = state.groupRow[sn];
+  if(groupRow){
+    // соберем группы (склеим одинаковые над соседними колонками)
+    let current = null, span = 0, cells = [];
+    for(const col of state.columns){
+      if(state.hiddenCols.has(col.idx)) continue;
+      const gcell = ws[XLSX.utils.encode_cell({r:groupRow-1, c:col.idx})];
+      const g = (gcell && gcell.v)? String(gcell.v) : '';
+      if(current===null){ current = g; span = 1; }
+      else if(g===current){ span++; }
+      else { cells.push({text: current || '', span}); current=g; span=1; }
+    }
+    if(current!==null) cells.push({text: current || '', span});
+    cells.forEach(gr=>{
+      const th = el('th', {class:'px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200', colSpan:gr.span}, gr.text);
+      tgroup.appendChild(th);
+    });
+  }
+
+  // заголовки колонок
+  state.columns.forEach(col=>{
+    if(state.hiddenCols.has(col.idx)) return;
+    const title = col.title || `C${col.idx+1}`;
+    const isSorted = false; // сортировка реализована кликом — упростим индикатор
+    const th = el('th', {class:'px-3 py-2 text-left font-semibold text-slate-700 border-b border-slate-200 sticky bg-slate-50 cursor-default select-none'}, title);
+    thead.appendChild(th);
+  });
+
+  // фильтр/сорт + пагинация на уровне отображения (по видимым колонкам)
+  renderBody();
+  $('#table-wrap').classList.remove('hidden');
+  $('#inspector').classList.remove('hidden');
+}
+
+let _filteredRowsCache = null;
+
+function collectRows(){
+  const sn = state.active;
+  const ws = state.wb.Sheets[sn];
+  const headerRow = state.headerRow[sn];
+  const r = state.dataRange;
+  const rows = [];
+  for(let rr=headerRow; rr<=r.e.r; rr++){
+    // проверим пустая ли строка полностью
+    let any = false;
+    for(const col of state.columns){
+      const cell = ws[XLSX.utils.encode_cell({r:rr, c:col.idx})];
+      if(cell && (cell.v!==undefined && cell.v!==null && cell.v!=='')) { any = true; break; }
+    }
+    if(!any) continue;
+    rows.push(rr);
+  }
+  return rows;
+}
+
+function applyFilterSort(rows){
+  const term = $('#search').value.trim().toLowerCase();
+  if(!term) return rows.slice();
+  const sn = state.active, ws = state.wb.Sheets[sn];
+  return rows.filter(rr=>{
+    return state.columns.some(col=>{
+      if(state.hiddenCols.has(col.idx)) return false;
+      const cell = ws[XLSX.utils.encode_cell({r:rr, c:col.idx})];
+      const v = cell? cell.v : '';
+      return (v!=null && String(v).toLowerCase().includes(term));
+    });
+  });
+}
+
+function renderBody(){
+  const sn = state.active;
+  const ws = state.wb.Sheets[sn];
+  const headerRow = state.headerRow[sn];
+  const tbody = $('#tbody'); tbody.innerHTML='';
+
+  let rows = collectRows();
+  rows = applyFilterSort(rows);
+
+  // пагинация
+  const total = rows.length;
+  const pages = Math.max(1, Math.ceil(total / state.pageSize));
+  state.page = Math.min(state.page, pages);
+  const start = (state.page-1)*state.pageSize;
+  const end = Math.min(total, start+state.pageSize);
+  for(let i=start;i<end;i++){
+    const rr = rows[i];
+    const tr = el('tr', {class: i%2 ? 'bg-white' : 'bg-slate-50'});
+    state.columns.forEach(col=>{
+      if(state.hiddenCols.has(col.idx)) return;
+      const addr = XLSX.utils.encode_cell({r:rr, c:col.idx});
+      const cell = ws[addr] || {};
+      const display = formatValue(cell.v);
+      const key = `${sn}!R${rr}C${col.idx}`;
+      const mod = state.modified.has(key);
+      const td = el('td', {
+        class: `px-3 py-2 border-b border-slate-100 align-top ${mod?'cell-modified':''} ${state.editMode && isEditableColumn(sn,col.idx)?'cursor-text':''}`,
+        dataset: { addr, colIdx: col.idx, rowIdx: rr, title: col.title||'' },
+        onClick: ()=> updateInspector(sn, addr, col.title||'')
+      }, display);
+
+      if(state.editMode && isEditableColumn(sn,col.idx)){
+        td.ondblclick = () => startEdit(td, cell);
+      }
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  }
+
+  $('#page-info').textContent = `Стр. ${state.page} из ${pages} — записей: ${total}`;
+  $('#prev').disabled = state.page<=1;
+  $('#next').disabled = state.page>=pages;
+}
+
+function startEdit(td, cell){
+  if(td.querySelector('input')) return;
+  const title = td.dataset.title || '';
+  const initial = td.textContent;
+  td.classList.add('cell-editing'); td.textContent='';
+  const isDate = title.toLowerCase().includes('желаемая дата');
+  const input = el('input', { class:'w-full bg-transparent outline-none', value: initial, type: isDate ? 'date' : 'text' });
+  td.appendChild(input); input.focus(); input.select();
+  const finish = (commit) => {
+    td.classList.remove('cell-editing');
+    const raw = commit ? input.value : initial;
+    td.innerHTML = '';
+    const parsed = commit ? parseInputValue(title, raw) : initial;
+    const display = formatValue(parsed===''?null:parsed);
+    td.appendChild(document.createTextNode(display));
+
+    if(commit && display !== initial){
+      const sn = state.active;
+      const rowIdx = parseInt(td.dataset.rowIdx,10);
+      const colIdx = parseInt(td.dataset.colIdx,10);
+      const addr = XLSX.utils.encode_cell({r:rowIdx, c:colIdx});
+
+      // Правим лист: меняем только значение (не трогаем формулы)
+      const ws = state.wb.Sheets[sn];
+      ws[addr] = ws[addr] || {};
+      ws[addr].v = parsed===''?null:parsed;
+      if(parsed instanceof Date){ ws[addr].t='d'; } else if(typeof parsed==='number'){ ws[addr].t='n'; } else { ws[addr].t='s'; }
+
+      const key = `${sn}!R${rowIdx}C${colIdx}`;
+      state.modified.set(key, ws[addr].v);
+      $('#changes').classList.remove('hidden');
+
+      if(state.autoRecalc) debounceRecalc();
+    }
+  };
+  input.addEventListener('keydown', e=>{ if(e.key==='Enter') finish(true); else if(e.key==='Escape') finish(false); });
+  input.addEventListener('blur', ()=> finish(true));
+}
+
+// Инспектор
+function updateInspector(sheet, addr, title){
+  const ws = state.wb.Sheets[sheet];
+  const cell = ws[addr] || {};
+  $('#insp-sheet').textContent = sheet;
+  $('#insp-addr').textContent = addr;
+  $('#insp-col').textContent = title || '—';
+  $('#insp-formula').textContent = cell.f ? `=${cell.f}`.replace(/^==/,'=') : '—';
+  $('#insp-value').textContent = cell.v===undefined ? '—' : JSON.stringify(cell.v, null, 2);
+  $('#insp-type').textContent = cell.t || '—';
+}
+
+// Пересчёт формул
+let _recalcTimer = null;
+function debounceRecalc(){
+  clearTimeout(_recalcTimer);
+  _recalcTimer = setTimeout(()=> doRecalc(), 300);
+}
+
+function doRecalc(){
+  setCalcBusy(true);
+  setTimeout(()=>{
+    try{
+      XLSX_CALC(state.wb); // глобальный пересчёт
+      renderBody();
+      setStatus('Пересчёт формул выполнен.');
+    }catch(e){
+      console.error(e);
+      showMsg('Ошибка пересчёта формул. Проверьте внешние ссылки/функции.', 'error');
+    }finally{
+      setCalcBusy(false);
+    }
+  }, 0);
+}
+
+// Экспорт
+function exportXLSX(){
+  // Формулы (cell.f) остаются нетронутыми — Excel сам пересчитает при открытии
+  const wbout = XLSX.write(state.wb, { bookType:'xlsx', type:'array' });
+  const blob = new Blob([wbout], {type:'application/octet-stream'});
+  saveAs(blob, `${state.active || 'data'}.xlsx`);
+}
+function exportCSV(){
+  const sn = state.active, ws = state.wb.Sheets[sn];
+  const csv = XLSX.utils.sheet_to_csv(ws);
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  saveAs(blob, `${sn}.csv`);
+}
+function exportJSON(){
+  const sn = state.active, ws = state.wb.Sheets[sn];
+  const headerRow = state.headerRow[sn];
+  const data = XLSX.utils.sheet_to_json(ws, { range: headerRow-1, header:1, raw:false });
+  const hdr = data.shift() || [];
+  const rows = data.map(r=>{
+    const o={}; hdr.forEach((h,i)=>{ if(h) o[h]=r[i]??null; }); return o;
+  });
+  const blob = new Blob([JSON.stringify(rows,null,2)], {type:'application/json'});
+  saveAs(blob, `${sn}.json`);
+}
+
+// ---- Events ----
+$('#file-main').addEventListener('change', async (e)=>{
+  const file = e.target.files?.[0]; if(!file) return;
+  try{
+    const buf = await readFileAsArrayBuffer(file);
+    const wb = XLSX.read(buf, {type:'array', cellDates:true});
+    state.wb = wb; state.modified.clear(); $('#changes').classList.add('hidden');
+    prepareAfterLoad();
+
+    // Если есть внешние ссылки — подготовим выпадающий список листов для привязки
+    if(state.hasExternalRefs){
+      $('#ext-sheet').innerHTML = '';
+      $('#ext-notice').classList.remove('hidden');
+      $('#ext-sheet').disabled = true; // до загрузки внешнего
+    }
+  }catch(err){
+    console.error(err); showMsg('Не удалось прочитать основной файл.', 'error');
+  }
+});
+
+$('#file-ext').addEventListener('change', async (e)=>{
+  const file = e.target.files?.[0]; if(!file) return;
+  try{
+    const buf = await readFileAsArrayBuffer(file);
+    const ext = XLSX.read(buf, {type:'array', cellDates:true});
+    state.extWb = ext;
+    const sel = $('#ext-sheet');
+    sel.innerHTML = '';
+    collectExtSheetNames(ext).forEach(n=>{
+      sel.appendChild(el('option', {value:n}, n));
+    });
+    sel.disabled = false;
+    showMsg('Внешний файл загружен. Выберите лист и нажмите «Привязать».');
+  }catch(err){
+    console.error(err); showMsg('Не удалось прочитать внешний файл.', 'error');
+  }
+});
+
+// Привязка внешних ссылок [1]Sheet1 -> __ext_1_Sheet1
+$('#ext-bind').addEventListener('click', ()=>{
+  if(!state.extWb){ showMsg('Сначала загрузите внешний файл.', 'error'); return; }
+  const sheetName = $('#ext-sheet').value;
+  if(!sheetName){ showMsg('Выберите лист внешнего файла.', 'error'); return; }
+  const newName = '__ext_1_' + sheetName;
+  if(!importExternalSheet(newName)){ showMsg('Не удалось импортировать лист.', 'error'); return; }
+  // Заменим формулы
+  const placeholder = /\[[0-9]+\]Sheet1!/g; // под ваш файл чаще всего [1]Sheet1
+  rewriteExternalRefs(placeholder, newName);
+  state.hasExternalRefs = false;
+  $('#ext-notice').classList.add('hidden');
+  setStatus(`Внешние ссылки перенаправлены на лист «${newName}». Выполняю пересчёт…`);
+  doRecalc();
+});
+
+// Поиск/сброс
+$('#search').addEventListener('input', ()=> renderBody());
+$('#reset').addEventListener('click', ()=>{
+  $('#search').value=''; state.hiddenCols.clear(); state.page=1;
+  render();
+  $('#changes').classList.add('hidden'); state.modified.clear();
+});
+
+// Пагинация
+$('#page-size').addEventListener('change', e=>{ state.pageSize = parseInt(e.target.value,10)||50; state.page=1; renderBody(); });
+$('#prev').addEventListener('click', ()=>{ state.page = Math.max(1, state.page-1); renderBody(); });
+$('#next').addEventListener('click', ()=>{ state.page = state.page+1; renderBody(); });
+
+// Колонки меню
+const colBtn = $('#col-visibility-btn'), colMenu = $('#col-visibility-menu');
+colBtn.addEventListener('click', ()=> colMenu.classList.toggle('hidden'));
+document.addEventListener('click', (e)=>{ if(!colMenu.contains(e.target) && e.target!==colBtn) colMenu.classList.add('hidden'); });
+
+// Редактирование/пересчёт
+$('#toggle-edit').addEventListener('click', ()=>{
+  state.editMode = !state.editMode;
+  $('#toggle-edit').textContent = `Редактирование: ${state.editMode?'вкл.':'выкл.'}`;
+});
+$('#auto-recalc').addEventListener('change', (e)=> state.autoRecalc = e.target.checked);
+$('#btn-recalc').addEventListener('click', ()=> doRecalc());
+
+// Экспорт
+$('#export-xlsx').addEventListener('click', exportXLSX);
+$('#export-csv').addEventListener('click', exportCSV);
+$('#export-json').addEventListener('click', exportJSON);
+</script>
+</body>
+</html>

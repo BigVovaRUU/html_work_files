@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Авторизация с Совой + Gemini</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
+
+        :root {
+            --primary-color: #4a90e2;
+            --primary-dark: #357abd;
+            --bg-color: #eef2f7;
+            --text-color: #333;
+        }
+
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: var(--bg-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        .login-container {
+            background: white;
+            padding: 40px 30px;
+            border-radius: 24px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 360px;
+            position: relative;
+            text-align: center;
+            padding-top: 60px; /* Место для совы */
+        }
+
+        h2 {
+            margin: 0 0 10px 0;
+            color: var(--text-color);
+            font-size: 24px;
+        }
+        
+        p.subtitle {
+            margin: 0 0 20px 0;
+            color: #888;
+            font-size: 14px;
+        }
+
+        /* --- Стили для Совы (SVG) --- */
+        .owl-container {
+            width: 140px;
+            height: 140px;
+            position: absolute;
+            top: -75px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+        }
+
+        svg.owl {
+            width: 100%;
+            height: 100%;
+            overflow: visible;
+        }
+
+        /* Анимация зрачков */
+        #owl-pupils {
+            transition: transform 0.1s ease-out;
+        }
+
+        /* Анимация крыльев */
+        .owl-wing {
+            transition: transform 0.3s cubic-bezier(0.25, 1.5, 0.5, 1);
+        }
+
+        #wing-left {
+            transform-origin: 35px 85px;
+            transform: rotate(0deg) translate(0, 0);
+        }
+
+        #wing-right {
+            transform-origin: 85px 85px;
+            transform: rotate(0deg) translate(0, 0);
+        }
+
+        .owl-login.password-mode #wing-left {
+            transform: rotate(120deg) translate(-10px, -5px);
+        }
+
+        .owl-login.password-mode #wing-right {
+            transform: rotate(-120deg) translate(10px, -5px);
+        }
+        
+        .owl-login.password-mode #owl-pupils {
+            transform: translateY(10px) !important;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        /* --- Речевой пузырь (Speech Bubble) --- */
+        .speech-bubble {
+            position: absolute;
+            top: -100px; /* Над совой */
+            left: 50%;
+            transform: translateX(-50%) scale(0.8);
+            background: #fff;
+            border: 2px solid var(--primary-color);
+            padding: 12px 16px;
+            border-radius: 16px;
+            border-bottom-left-radius: 4px; /* "Хвостик" */
+            width: 240px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.15);
+            font-size: 13px;
+            color: #444;
+            z-index: 20;
+            opacity: 0;
+            pointer-events: none;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            font-style: italic;
+            line-height: 1.4;
+        }
+        
+        .speech-bubble.visible {
+            opacity: 1;
+            transform: translateX(-50%) scale(1);
+            top: -110px;
+        }
+
+        /* Хвостик пузыря */
+        .speech-bubble::after {
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            left: 20px;
+            width: 15px;
+            height: 15px;
+            background: #fff;
+            border-bottom: 2px solid var(--primary-color);
+            border-right: 2px solid var(--primary-color);
+            transform: rotate(45deg);
+        }
+
+        /* --- Стили формы --- */
+        .form-group {
+            margin-bottom: 15px;
+            position: relative;
+            text-align: left;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: #666;
+            font-weight: 500;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid #eef2f7;
+            background: #f9fbfd;
+            border-radius: 12px;
+            font-size: 16px;
+            box-sizing: border-box;
+            transition: all 0.3s ease;
+            outline: none;
+            color: #333;
+        }
+
+        .form-group input:focus {
+            border-color: var(--primary-color);
+            background: #fff;
+            box-shadow: 0 0 0 4px rgba(74, 144, 226, 0.1);
+        }
+
+        /* Кнопки AI Feature */
+        .ai-helper-btn {
+            background: none;
+            border: none;
+            color: var(--primary-color);
+            font-size: 12px;
+            cursor: pointer;
+            padding: 5px 0;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-weight: 500;
+            margin-top: 4px;
+            transition: opacity 0.2s;
+        }
+        .ai-helper-btn:hover {
+            opacity: 0.8;
+            text-decoration: underline;
+        }
+        
+        .ai-actions {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .btn-wisdom {
+            background: #f0f7ff;
+            color: var(--primary-color);
+            border: 1px solid rgba(74, 144, 226, 0.3);
+            border-radius: 20px;
+            padding: 8px 16px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .btn-wisdom:hover {
+            background: #e1effe;
+            transform: translateY(-1px);
+        }
+        
+        .loading-spinner {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border: 2px solid var(--primary-color);
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        button.main-btn {
+            width: 100%;
+            padding: 14px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 5px;
+            box-shadow: 0 4px 10px rgba(74, 144, 226, 0.3);
+        }
+
+        button.main-btn:hover {
+            background-color: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(74, 144, 226, 0.4);
+        }
+
+        button.main-btn:active {
+            transform: scale(0.98);
+        }
+
+        .links {
+            margin-top: 20px;
+            font-size: 14px;
+        }
+        .links a {
+            color: var(--primary-color);
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .links a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="login-container">
+        
+        <!-- Пузырь для речи Совы -->
+        <div id="speech-bubble" class="speech-bubble">
+            Привет! Я слежу за безопасностью твоих данных.
+        </div>
+
+        <!-- SVG Сова -->
+        <div class="owl-container owl-login" id="owl-mascot">
+            <svg class="owl" viewBox="0 0 120 120">
+                <defs>
+                    <linearGradient id="bodyGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" style="stop-color:#cfd8dc;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#b0bec5;stop-opacity:1" />
+                    </linearGradient>
+                    <linearGradient id="faceGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" style="stop-color:#ffffff;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#eceff1;stop-opacity:1" />
+                    </linearGradient>
+                    <linearGradient id="wingGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" style="stop-color:#cfd8dc;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#90a4ae;stop-opacity:1" />
+                    </linearGradient>
+                </defs>
+
+                <path d="M20 25 L10 5 L45 20 Z" fill="url(#bodyGradient)" stroke="#90a4ae" stroke-width="2" stroke-linejoin="round"/>
+                <path d="M100 25 L110 5 L75 20 Z" fill="url(#bodyGradient)" stroke="#90a4ae" stroke-width="2" stroke-linejoin="round"/>
+                <ellipse cx="60" cy="70" rx="50" ry="45" fill="url(#bodyGradient)" stroke="#90a4ae" stroke-width="2"/>
+                <ellipse cx="60" cy="80" rx="30" ry="25" fill="#eceff1" opacity="0.6"/>
+                <path d="M50 75 Q60 85 70 75" fill="none" stroke="#b0bec5" stroke-width="2" stroke-linecap="round"/>
+                <path d="M55 85 Q60 90 65 85" fill="none" stroke="#b0bec5" stroke-width="2" stroke-linecap="round"/>
+                <path d="M60 55 C40 55 25 40 25 40 C25 65 40 80 60 80 C80 80 95 65 95 40 C95 40 80 55 60 55 Z" fill="url(#faceGradient)" />
+
+                <g id="eyes">
+                    <circle cx="43" cy="48" r="14" fill="#fff" stroke="#cfd8dc" stroke-width="2"/>
+                    <circle cx="77" cy="48" r="14" fill="#fff" stroke="#cfd8dc" stroke-width="2"/>
+                </g>
+
+                <g id="owl-pupils">
+                    <circle cx="43" cy="48" r="5" fill="#37474f" />
+                    <circle cx="45" cy="46" r="1.5" fill="#fff" opacity="0.8"/>
+                    <circle cx="77" cy="48" r="5" fill="#37474f" />
+                    <circle cx="79" cy="46" r="1.5" fill="#fff" opacity="0.8"/>
+                </g>
+
+                <path d="M60 55 Q55 65 60 70 Q65 65 60 55" fill="#ffab91" stroke="#ff8a65" stroke-width="1"/>
+                <path d="M45 113 L45 118 M42 113 L40 118 M48 113 L50 118" stroke="#ff8a65" stroke-width="3" stroke-linecap="round" />
+                <path d="M75 113 L75 118 M72 113 L70 118 M78 113 L80 118" stroke="#ff8a65" stroke-width="3" stroke-linecap="round" />
+
+                <g id="wing-left">
+                     <path d="M35 85 Q10 90 5 110 L25 110 Q40 95 35 85 Z" fill="url(#wingGradient)" stroke="#78909c" stroke-width="2"/>
+                </g>
+                <g id="wing-right">
+                    <path d="M85 85 Q110 90 115 110 L95 110 Q80 95 85 85 Z" fill="url(#wingGradient)" stroke="#78909c" stroke-width="2"/>
+                </g>
+            </svg>
+        </div>
+
+        <h2>С возвращением!</h2>
+        <p class="subtitle">Войдите в свой аккаунт</p>
+
+        <!-- Кнопка Мудрость Совы (Gemini) -->
+        <div class="ai-actions">
+            <button type="button" class="btn-wisdom" id="btn-wisdom" onclick="getOwlWisdom()">
+                <span>✨ Мудрость Совы</span>
+            </button>
+        </div>
+
+        <form>
+            <div class="form-group">
+                <label for="username">Логин</label>
+                <input type="text" id="username" placeholder="Введи email" autocomplete="off">
+                <!-- Кнопка генерации ника (Gemini) -->
+                <div style="text-align: right;">
+                    <button type="button" class="ai-helper-btn" onclick="generateUsername()">
+                        ✨ Придумать ник
+                    </button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Пароль</label>
+                <input type="password" id="password" placeholder="Введи пароль">
+            </div>
+
+            <button type="submit" class="main-btn">Войти</button>
+            
+            <div class="links">
+                <a href="#">Забыли пароль?</a>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        const usernameInput = document.getElementById('username');
+        const passwordInput = document.getElementById('password');
+        const owlMascot = document.getElementById('owl-mascot');
+        const pupils = document.getElementById('owl-pupils');
+        const speechBubble = document.getElementById('speech-bubble');
+        const btnWisdom = document.getElementById('btn-wisdom');
+
+        // --- GEMINI API INTEGRATION ---
+        
+        const apiKey = ""; // API key injection
+
+        async function callGemini(prompt) {
+            try {
+                const response = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`,
+                    {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: prompt }] }]
+                        })
+                    }
+                );
+                
+                if (!response.ok) throw new Error("API Error");
+                const data = await response.json();
+                return data.candidates[0].content.parts[0].text;
+            } catch (error) {
+                console.error(error);
+                return "Упс, я потеряла связь с космическим сервером!";
+            }
+        }
+
+        // Функция 1: Мудрость Совы
+        async function getOwlWisdom() {
+            showSpeechBubble("Дай-ка подумать...", true);
+            
+            const prompt = "Скажи одну короткую (максимум 20 слов), забавную или полезную фразу про кибербезопасность или пароли от лица мудрой совы. На русском языке. Без кавычек.";
+            
+            const text = await callGemini(prompt);
+            showSpeechBubble(text);
+        }
+
+        // Функция 2: Генерация Никнейма
+        async function generateUsername() {
+            const currentInput = usernameInput.value;
+            let prompt = "";
+            
+            if (currentInput.length < 2) {
+                showSpeechBubble("Придумываю что-то случайное и крутое...", true);
+                prompt = "Придумай один крутой, короткий юзернейм для сайта (на английском), связанный с технологиями или совами. Напиши ТОЛЬКО сам никнейм.";
+            } else {
+                showSpeechBubble(`Генерирую варианты для "${currentInput}"...`, true);
+                prompt = `Придумай один классный вариант никнейма на основе имени "${currentInput}". Сделай его немного 'технологичным'. Напиши ТОЛЬКО сам никнейм, без лишних слов.`;
+            }
+
+            const newNick = await callGemini(prompt);
+            // Очистка от лишних пробелов и переносов
+            const cleanNick = newNick.trim().replace(/\n/g, '').replace(/\*/g, ''); 
+            
+            // Эффект печатания в поле
+            usernameInput.value = "";
+            typeWriter(usernameInput, cleanNick);
+            showSpeechBubble(`Как тебе такой: ${cleanNick}?`);
+        }
+
+        // Хелпер: Показать пузырь с текстом
+        function showSpeechBubble(text, isLoading = false) {
+            speechBubble.innerText = text;
+            if (isLoading) {
+                 speechBubble.innerHTML = `<em>${text}</em> <div class='loading-spinner'></div>`;
+            }
+            speechBubble.classList.add('visible');
+            
+            // Скрыть через 5 секунд, если не загрузка
+            if (!isLoading) {
+                setTimeout(() => {
+                    speechBubble.classList.remove('visible');
+                }, 6000);
+            }
+        }
+
+        // Хелпер: Эффект печатной машинки для инпута
+        function typeWriter(inputElement, text, i = 0) {
+            if (i < text.length) {
+                inputElement.value += text.charAt(i);
+                inputElement.dispatchEvent(new Event('input')); // Триггер для глаз совы
+                setTimeout(() => typeWriter(inputElement, text, i + 1), 50);
+            }
+        }
+
+
+        // --- СТАРАЯ ЛОГИКА АНИМАЦИИ ---
+
+        const EYE_LIMIT_X = 10;
+        const EYE_LIMIT_Y = 5;
+
+        usernameInput.addEventListener('focus', () => {
+            owlMascot.classList.remove('password-mode');
+        });
+
+        usernameInput.addEventListener('input', (e) => {
+            const length = e.target.value.length;
+            const maxChars = 30; 
+            let percentage = length / maxChars;
+            if (percentage > 1) percentage = 1;
+            
+            const moveX = -EYE_LIMIT_X + (percentage * (EYE_LIMIT_X * 2));
+            const moveY = EYE_LIMIT_Y; 
+
+            pupils.style.transform = `translate(${moveX}px, ${moveY}px)`;
+        });
+
+        usernameInput.addEventListener('blur', () => {
+            pupils.style.transform = `translate(0px, 0px)`;
+        });
+
+        passwordInput.addEventListener('focus', () => {
+            owlMascot.classList.add('password-mode');
+            showSpeechBubble("Не подглядываю! Твой секрет в безопасности.");
+        });
+
+        passwordInput.addEventListener('blur', () => {
+            owlMascot.classList.remove('password-mode');
+        });
+    </script>
+</body>
+</html>
